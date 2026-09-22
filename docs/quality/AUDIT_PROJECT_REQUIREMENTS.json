@@ -1,0 +1,47 @@
+{
+  "schema": "AUDIT_PROJECT_REQUIREMENTS_V1",
+  "project": "Vivaliz-site/buscador",
+  "policy_version": "2026-09-21-absolute-v5",
+  "required_invariants": [
+    {
+      "id": "BUSCADOR_THREE_PROVIDER_CHAT_REAL_V1",
+      "type": "provider_chat",
+      "description": "Buscador is only APTO when OpenAI, Claude and Gemini are active and each returns a non-empty visible response in the same real chat cycle; research mode also requires research, critique and converge for all three and real consensus.",
+      "providers": [
+        "openai",
+        "anthropic",
+        "gemini"
+      ],
+      "phases": [
+        "research",
+        "critique",
+        "converge"
+      ],
+      "consensus_required": true
+    },
+    {
+      "id": "BUSCADOR_ADMIN_UI_E2E_V1",
+      "type": "journey_ids",
+      "description": "Admin authentication and a complete Buscador chat cycle must be executed in the real graphical browser.",
+      "required_journey_ids": [
+        "buscador-admin-login",
+        "buscador-chat-cycle"
+      ]
+    },
+    {
+      "id": "BUSCADOR_HEALTH_NOT_CERTIFICATION_V1",
+      "type": "evidence",
+      "description": "ok=true/configured/health alone never certifies the product; provider response behavior must be proven."
+    },
+    {
+      "id": "BUSCADOR_NO_FABLE_V1",
+      "type": "evidence",
+      "description": "Fable must not appear in any active Buscador preset/transport path."
+    },
+    {
+      "id": "BUSCADOR_TRANSPORT_AUTH_REAL_V1",
+      "type": "evidence",
+      "description": "OpenAI/Claude/Gemini transport authentication must be live-verified according to the documented allowed transport chain."
+    }
+  ]
+}
