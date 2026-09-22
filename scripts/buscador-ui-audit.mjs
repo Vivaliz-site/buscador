@@ -123,6 +123,8 @@ try {
       phase: (document.querySelector('#phase')?.textContent || '').trim(),
       messageCount: Number((document.querySelector('#messages')?.textContent || '0').trim()),
       duration: (document.querySelector('#duration')?.textContent || '').trim(),
+      completeProviderCoverage: document.querySelector('#feed')?.dataset.completeProviderCoverage,
+      consensusAvailable: document.querySelector('#feed')?.dataset.consensusAvailable,
       consensusLength: (document.querySelector('#consensus')?.textContent || '').trim().length,
       phases,
       messages,
@@ -136,6 +138,8 @@ try {
   }
   if (summary.phase !== 'Concluído') fail('cycle_not_finished');
   if (summary.messageCount !== 9 || summary.messages.length !== 9) fail('expected_9_messages');
+  if (summary.completeProviderCoverage !== 'true') fail('complete_provider_coverage_false');
+  if (summary.consensusAvailable !== 'true') fail('consensus_available_false');
   if (summary.messages.some(x => x.error)) fail('msg.error_present');
   if (summary.messages.some(x => x.manual)) fail('msg.manual_present');
 
@@ -155,6 +159,8 @@ try {
     cycle: summary.cycle,
     phase: summary.phase,
     messages: summary.messageCount,
+    completeProviderCoverage: summary.completeProviderCoverage,
+    consensusAvailable: summary.consensusAvailable,
     phases: summary.phases,
     providerCounts: Object.fromEntries(['openai','anthropic','gemini'].map(p => [p, summary.messages.filter(x => x.provider === p).length])),
     researchSourceCounts: Object.fromEntries(['openai','anthropic','gemini'].map(p => [p, summary.messages.find(x => x.provider === p && x.phase === 'Pesquisa independente')?.sourceLinks || 0])),

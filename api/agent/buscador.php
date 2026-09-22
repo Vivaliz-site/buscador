@@ -206,7 +206,7 @@ $cycleId = 'ais_' . gmdate('Ymd_His') . '_' . substr(bin2hex(random_bytes(8)), 0
 $providers = ['openai', 'anthropic', 'gemini'];
 $events = [];
 $transcript = [];
-$providerStatus = [];
+$providerAttemptStatus = [];
 $startedAt = microtime(true);
 
 svais_api_emit([
@@ -235,7 +235,7 @@ foreach ($phases as $phase) {
 
     $phaseBaseTranscript = $transcript;
     foreach ($providers as $provider) {
-        if (($providerStatus[$provider] ?? '') === 'manual_required') {
+        if (($providerAttemptStatus[$provider] ?? '') === 'manual_required') {
             continue;
         }
 
@@ -263,10 +263,10 @@ foreach ($phases as $phase) {
                 'ok' => true,
             ];
             $transcript[] = $entry;
-            $providerStatus[$provider] = 'ok';
+            $providerAttemptStatus[$provider] = 'ok';
             svais_api_emit($entry, $stream, $events);
         } catch (SvaisManualInterventionRequired $manual) {
-            $providerStatus[$provider] = 'manual_required';
+            $providerAttemptStatus[$provider] = 'manual_required';
             $entry = [
                 'type' => 'agent_manual_required',
                 'cycle_id' => $cycleId,
@@ -276,18 +276,20 @@ foreach ($phases as $phase) {
                 'prompt' => $manual->manualPrompt,
                 'attempts' => $manual->attempts,
                 'transport' => 'manual_chatgpt',
+                'failure_class' => (string)($manual->attempts[0]['class'] ?? 'manual_required'),
                 'ok' => false,
             ];
             $transcript[] = $entry;
             svais_api_emit($entry, $stream, $events);
         } catch (Throwable $e) {
-            $providerStatus[$provider] = 'error';
+            $providerAttemptStatus[$provider] = 'error';
             $entry = [
                 'type' => 'agent_error',
                 'cycle_id' => $cycleId,
                 'phase' => $phase,
                 'provider' => $provider,
                 'error' => svais_safe_error($e),
+                'failure_class' => svais_failure_class($e),
                 'ok' => false,
             ];
             $transcript[] = $entry;
@@ -301,7 +303,10 @@ $successful = array_values(array_filter(
     static fn(array $entry): bool => ($entry['type'] ?? '') === 'agent_message' && ($entry['ok'] ?? false) === true
 ));
 
-$completeCoverage = svais_cycle_complete_for_consensus($transcript, $providers, $phases);
+$coverage = svais_cycle_coverage($transcript, $providers, $phases);
+$providerStatus = $coverage['provider_status'];
+$providerPhaseStatus = $coverage['provider_phase_status'];
+$completeCoverage = $coverage['complete_provider_coverage'];
 $consensus = null;
 if ($completeCoverage) {
     $consensusPrompt = svais_consensus_prompt($topic, $successful);
@@ -352,6 +357,7 @@ $done = [
     'profile' => $profileName,
     'mode' => $mode,
     'provider_status' => $providerStatus,
+    'provider_phase_status' => $providerPhaseStatus,
     'message_count' => count($successful),
     'complete_provider_coverage' => $completeCoverage,
     'consensus_available' => is_array($consensus),
@@ -366,6 +372,7 @@ svais_api_log_cycle([
     'mode' => $mode,
     'topic_length' => mb_strlen($topic, 'UTF-8'),
     'provider_status' => $providerStatus,
+    'provider_phase_status' => $providerPhaseStatus,
     'message_count' => count($successful),
     'complete_provider_coverage' => $completeCoverage,
     'consensus_available' => is_array($consensus),
