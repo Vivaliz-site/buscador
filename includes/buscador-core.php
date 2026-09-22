@@ -377,9 +377,7 @@ function svais_http_json(string $url, array $headers, array $payload, int $timeo
         CURLOPT_ENCODING => '',
     ]);
 
-    $body = curl_exec($ch);
-    $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlError = curl_error($ch);
+    [$curlOk, $body, $status, $curlError] = svais_bridge_curl_exec($ch);
     curl_close($ch);
 
     if ($body === false || $curlError !== '') {
@@ -402,6 +400,26 @@ function svais_http_json(string $url, array $headers, array $payload, int $timeo
     }
 
     return $decoded;
+}
+
+
+function svais_bridge_curl_exec(CurlHandle $ch): array
+{
+    $body = '';
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, false);
+    curl_setopt($ch, CURLOPT_WRITEFUNCTION, static function (CurlHandle $handle, string $chunk) use (&$body): int {
+        $body .= $chunk;
+        if (defined('SVAIS_STREAM_HEARTBEAT') && SVAIS_STREAM_HEARTBEAT === true && trim($chunk) === '') {
+            echo "\n";
+            @ob_flush();
+            flush();
+        }
+        return strlen($chunk);
+    });
+    $ok = curl_exec($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $error = curl_error($ch);
+    return [$ok, $body, $status, $error];
 }
 
 function svais_codex_bridge_call(array $cfg, string $system, string $prompt, bool $webSearch): array
@@ -489,9 +507,7 @@ function svais_claude_bridge_call(array $cfg, string $system, string $prompt, bo
         CURLOPT_TIMEOUT => $timeout,
         CURLOPT_PROXY => '',
     ]);
-    $body = curl_exec($ch);
-    $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlError = curl_error($ch);
+    [$curlOk, $body, $status, $curlError] = svais_bridge_curl_exec($ch);
     curl_close($ch);
 
     if (!is_string($body) || $curlError !== '') {
