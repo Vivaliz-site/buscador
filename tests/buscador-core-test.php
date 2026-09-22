@@ -334,3 +334,6 @@ ais_assert(str_contains($apiSource, 'svais_cycle_complete_for_consensus'), 'API 
 ais_assert(!str_contains($apiSource, 'if ($successful !== [])'), 'API must not allow partial-success consensus');
 ais_assert(str_contains((string)file_get_contents(dirname(__DIR__) . '/includes/buscador-core.php'), 'CURLOPT_TIMEOUT_MS => 25000'), 'Codex health probe timeout must cover live bridge verification');
 echo "BUSCADOR_CORE_TEST=PASS\n";
+
+// Provider contract regression guard.
+ais_assert((svais_profile('deep_research')['gemini']['model'] ?? '') === 'gemini-3.5-flash', 'deep_research must default to gemini-3.5-flash');
