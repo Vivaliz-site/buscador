@@ -72,7 +72,7 @@ try {
   }, null, { timeout: 30000 });
 
   const modelText = (await page.locator('#models').innerText()).trim();
-  for (const expected of ['gpt-5.6-terra', 'claude-sonnet-5', 'gemini-2.5-flash', 'Fable: desabilitado']) {
+  for (const expected of ['gpt-5.6-terra', 'claude-sonnet-5', 'gemini-3.5-flash', 'Fable: desabilitado']) {
     if (!modelText.includes(expected)) fail('model_contract_missing_' + expected);
   }
   if ((modelText.match(/medium/gi) || []).length < 3) fail('medium_reasoning_not_visible');
