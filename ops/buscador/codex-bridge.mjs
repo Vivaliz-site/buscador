@@ -167,7 +167,7 @@ class AppServerClient {
 
     await this.rpc('initialize', {
       clientInfo: {
-        name: 'shopvivaliz_ai_squad',
+        name: 'shopvivaliz_buscador',
         title: 'ShopVivaliz Buscador',
         version: '1.0.0',
       },
@@ -297,7 +297,7 @@ async function runProfile(profileHome, request, deadlineMs) {
       approvalPolicy: 'never',
       sandbox: 'read-only',
       ephemeral: true,
-      serviceName: 'shopvivaliz_ai_squad',
+      serviceName: 'shopvivaliz_buscador',
     }, remainingRequestMs(deadlineMs, Date.now(), 15000));
 
     const effectiveModel = String(

@@ -7,10 +7,10 @@ require_once __DIR__ . '/../config/bootstrap-env.php';
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
-if (empty($_SESSION['ai_squad_csrf'])) {
-    $_SESSION['ai_squad_csrf'] = bin2hex(random_bytes(24));
+if (empty($_SESSION['buscador_csrf'])) {
+    $_SESSION['buscador_csrf'] = bin2hex(random_bytes(24));
 }
-$csrf = (string)$_SESSION['ai_squad_csrf'];
+$csrf = (string)$_SESSION['buscador_csrf'];
 
 header('Content-Type: text/html; charset=utf-8');
 header('Cache-Control: no-store');
