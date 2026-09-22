@@ -19,7 +19,7 @@ ais_assert(($deep['openai']['model'] ?? '') === (getenv('BUSCADOR_OPENAI_MODEL')
 ais_assert(($deep['openai']['effort'] ?? '') === 'medium', 'deep OpenAI effort must be medium');
 ais_assert(($deep['anthropic']['model'] ?? '') === svais_non_fable_model('BUSCADOR_ANTHROPIC_MODEL', 'claude-sonnet-5'), 'deep Anthropic model mismatch');
 ais_assert(($deep['anthropic']['effort'] ?? '') === 'medium', 'deep Anthropic effort must be medium');
-ais_assert(($deep['gemini']['model'] ?? '') === (getenv('BUSCADOR_GEMINI_MODEL') ?: 'gemini-2.5-flash'), 'deep Gemini model mismatch');
+ais_assert(($deep['gemini']['model'] ?? '') === (getenv('BUSCADOR_GEMINI_MODEL') ?: 'gemini-3.5-flash'), 'deep Gemini model mismatch');
 ais_assert(($deep['gemini']['thinking_level'] ?? '') === 'MEDIUM', 'deep Gemini thinking must be MEDIUM');
 ais_assert(svais_gemini_thinking_config($deep['gemini']) === ['thinkingBudget' => 8192], 'Gemini 2.5 MEDIUM must use thinkingBudget 8192');
 $fast = $catalog['fast'];
