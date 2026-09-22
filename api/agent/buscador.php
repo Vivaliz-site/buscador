@@ -1,6 +1,11 @@
 <?php
 declare(strict_types=1);
 
+// Deep-research cycles can legitimately exceed the default PHP request timeout.
+// Keep the server-side cycle alive long enough to finish all providers and consensus.
+@set_time_limit(900);
+ignore_user_abort(true);
+
 require_once dirname(__DIR__, 2) . '/config/bootstrap-env.php';
 require_once dirname(__DIR__, 2) . '/config/agent-keys.php';
 require_once dirname(__DIR__, 2) . '/includes/order-rate-limit.php';
@@ -46,7 +51,7 @@ function svais_api_auth_mode(): string
     }
 
     $candidates = [];
-    foreach (['SHOPVIVALIZ_AGENT_KEY', 'RUNTIME_AGENT_KEY', 'AUTONOMOUS_AGENT_KEY', 'SQUAD_TOKEN'] as $name) {
+    foreach (['GEPETO_ACTION_KEY', 'SHOPVIVALIZ_AGENT_KEY', 'RUNTIME_AGENT_KEY', 'AUTONOMOUS_AGENT_KEY', 'SQUAD_TOKEN'] as $name) {
         $value = getenv($name);
         if (is_string($value) && trim($value) !== '') {
             $candidates[] = trim($value);
@@ -125,7 +130,7 @@ if ($method === 'GET' && ($_GET['health'] ?? '') === '1') {
         'profile' => $profileName,
         'providers' => svais_provider_state($profile),
         'profiles' => array_map(static fn(array $p): string => (string)$p['label'], $profiles),
-        'anthropic_policy' => 'opus5_primary_no_fable',
+        'anthropic_policy' => 'claude_code_account_only_no_fable',
     ]);
 }
 
@@ -267,7 +272,7 @@ foreach ($phases as $phase) {
                 'model' => $manual->model,
                 'prompt' => $manual->manualPrompt,
                 'attempts' => $manual->attempts,
-                'transport' => 'manual',
+                'transport' => 'manual_chatgpt',
                 'ok' => false,
             ];
             $transcript[] = $entry;
@@ -293,8 +298,9 @@ $successful = array_values(array_filter(
     static fn(array $entry): bool => ($entry['type'] ?? '') === 'agent_message' && ($entry['ok'] ?? false) === true
 ));
 
+$completeCoverage = svais_cycle_complete_for_consensus($transcript, $providers, $phases);
 $consensus = null;
-if ($successful !== []) {
+if ($completeCoverage) {
     $consensusPrompt = svais_consensus_prompt($topic, $successful);
     svais_api_emit([
         'type' => 'phase_started',
@@ -335,14 +341,16 @@ if ($successful !== []) {
 }
 
 $durationMs = (int)round((microtime(true) - $startedAt) * 1000);
+$cycleOk = $completeCoverage && is_array($consensus);
 $done = [
     'type' => 'cycle_finished',
     'cycle_id' => $cycleId,
-    'ok' => $successful !== [],
+    'ok' => $cycleOk,
     'profile' => $profileName,
     'mode' => $mode,
     'provider_status' => $providerStatus,
     'message_count' => count($successful),
+    'complete_provider_coverage' => $completeCoverage,
     'consensus_available' => is_array($consensus),
     'duration_ms' => $durationMs,
 ];
@@ -356,13 +364,14 @@ svais_api_log_cycle([
     'topic_length' => mb_strlen($topic, 'UTF-8'),
     'provider_status' => $providerStatus,
     'message_count' => count($successful),
+    'complete_provider_coverage' => $completeCoverage,
     'consensus_available' => is_array($consensus),
     'duration_ms' => $durationMs,
 ]);
 
 if (!$stream) {
     echo json_encode([
-        'ok' => $successful !== [],
+        'ok' => $cycleOk,
         'endpoint' => 'buscador',
         'cycle_id' => $cycleId,
         'events' => $events,

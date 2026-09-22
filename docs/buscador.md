@@ -35,11 +35,11 @@ A UI mostra a interação em fases:
 
 ### `deep_research`
 
-Preset para pesquisas aprofundadas e debates com evidência atual:
+Preset para pesquisas aprofundadas e debates com evidência atual. O nível operacional atual de raciocínio/esforço é `medium` para os três provedores:
 
-- OpenAI: `gpt-5.6-sol`, effort `xhigh`;
-- Anthropic: `claude-opus-5`, effort `xhigh`;
-- Gemini: `gemini-3.1-pro-preview`, thinking `HIGH`;
+- OpenAI: `gpt-5.6-terra`, effort `medium`;
+- Anthropic: `claude-sonnet-5`, effort `medium`;
+- Gemini: `gemini-2.5-flash`, thinking `MEDIUM`;
 - web search habilitado para os três.
 
 Por decisão operacional, Fable não faz parte de nenhum preset do Buscador.
@@ -48,32 +48,37 @@ Por decisão operacional, Fable não faz parte de nenhum preset do Buscador.
 
 - OpenAI: `gpt-5.6-terra`, effort `high`;
 - Anthropic: `claude-sonnet-5`, effort `high`;
-- Gemini: `gemini-3.5-flash`, thinking `MEDIUM`.
+- Gemini: `gemini-2.5-flash`, thinking `MEDIUM`.
 
 ### `fast`
 
 Perfil de menor custo/latência para tarefas simples.
 
+Para `gemini-2.5-flash`, o nível lógico `MEDIUM` é serializado nas APIs GenerateContent/Vertex como `thinkingBudget: 8192`; `LOW` usa `thinkingBudget: 1024`. `thinkingLevel` é reservado aos modelos Gemini 3.x que suportam esse campo.
+
 ## Variáveis de ambiente
 
 As variáveis abaixo são referências de configuração. Valores nunca devem ser versionados.
 
-Obrigatórias para os três provedores:
+Transportes operacionais atuais:
 
-- `OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
-- `GEMINI_API_KEY` ou `GOOGLE_API_KEY`
+- OpenAI: `codex_chatgpt` com perfis ChatGPT Business autenticados; o bridge tenta os perfis configurados em ordem e, se todos estiverem sem cota/indisponíveis, emite fallback explícito `manual_chatgpt`. O Buscador não usa `OPENAI_API_KEY` como fallback.
+- Anthropic: `claude_code` com OAuth da conta; o runtime canônico é um `systemd --user` instalado por `ops/buscador/install-claude-bridge-user-service.sh`, executando sempre o bridge da release ativa; não há fallback silencioso para API direta, Vertex ou OpenRouter;
+- Gemini: `vertex_oauth` → API direta quando configurada. O OpenRouter não faz parte da cadeia operacional enquanto não houver credencial validada ao vivo.
 
-Fallback opcional de transporte:
+Credenciais opcionais dos provedores que ainda usam API são mantidas apenas no runtime protegido. Para OpenAI, a política do Buscador é login ChatGPT Business via Codex, sem fallback para `OPENAI_API_KEY`. Gemini pode usar `GEMINI_API_KEY`/`GOOGLE_API_KEY` como fallback direto conforme a ordem de transportes documentada.
 
-- `OPENROUTER_API_KEY` — usado somente quando a chamada direta do provider falhar; o modelo original continua identificado na resposta.
+Para OpenAI, cada identidade ChatGPT mantém `CODEX_HOME` isolado. O bridge verifica autenticação e limites de cada perfil, tenta automaticamente o próximo perfil quando encontra cota/rate-limit esgotado e só então gera o fallback `manual_chatgpt` para uso visível no ChatGPT. O health publica apenas contagens de perfis autenticados/disponíveis/esgotados, nunca tokens.
+
+Para Claude Code, o bridge reutiliza preferencialmente o login persistente Claude.ai do usuário `ubuntu` em `/home/ubuntu/.claude/.credentials.json`; um `CLAUDE_CODE_OAUTH_TOKEN` explicitamente provisionado continua aceito quando necessário. O conteúdo dessas credenciais nunca deve ser impresso, versionado ou copiado para logs. A presença de credencial não é suficiente para health verde: o bridge executa uma inferência real e limitada antes de declarar `authenticated=true`.
 
 Overrides opcionais:
 
-- `BUSCADOR_OPENAI_MODEL`
-- `BUSCADOR_ANTHROPIC_MODEL`
-- `BUSCADOR_GEMINI_MODEL`
-- equivalentes `*_BALANCED_MODEL` e `*_FAST_MODEL`.
+- `AI_SQUAD_OPENAI_MODEL`
+- `AI_SQUAD_ANTHROPIC_MODEL`
+- `AI_SQUAD_GEMINI_MODEL`
+- equivalentes `*_BALANCED_MODEL` e `*_FAST_MODEL`;
+- `AI_SQUAD_CODEX_WEB_SEARCH_MODE` — modo de pesquisa web do bridge Codex (`live`, `cached` ou `disabled` conforme política de runtime).
 
 ## Health
 
@@ -85,9 +90,14 @@ O health esperado contém:
 
 - `ok=true`
 - `endpoint=buscador`
-- `providers` com OpenAI, Anthropic e Gemini
-- modelo e esforço de cada provider
-- somente booleano `configured`, nunca a credencial.
+- `providers` com OpenAI, Anthropic e Gemini;
+- modelo e esforço de cada provider;
+- `health=verified` somente quando o transporte primário possui prova viva de autenticação/disponibilidade;
+- `health=configured_unverified` quando existe transporte configurado, mas sem prova viva equivalente;
+- `health=unavailable` quando nenhum transporte está configurado;
+- estados de autenticação/transportes em booleanos, nunca a credencial.
+
+A UI não pode converter `configured=true` em indicador verde. Verde exige `health=verified`; configuração sem verificação deve aparecer como estado distinto.
 
 ## API externa
 
@@ -112,6 +122,8 @@ A resposta streaming usa NDJSON. Eventos relevantes:
 - `consensus`
 - `cycle_finished`
 
+No modo `research`, consenso válido exige cobertura completa de OpenAI, Claude e Gemini nas fases `research`, `critique` e `converge`. Erro, intervenção manual ou ausência de qualquer provider/fase bloqueia o evento de consenso e força `cycle_finished.ok=false`; respostas parciais nunca podem ser apresentadas como consenso dos três providers.
+
 ## Testes
 
 ```bash
@@ -119,6 +131,10 @@ php -l includes/buscador-core.php
 php -l api/agent/buscador.php
 php -l admin/buscador.php
 php tests/buscador-core-test.php
+node tests/buscador-codex-bridge-test.mjs
+node tests/buscador-claude-bridge-test.mjs
+bash tests/buscador-three-provider-runtime-contract-test.sh
+bash tests/buscador-ui-audit-contract-test.sh
 ```
 
 O teste também falha caso o nome `fable` apareça em qualquer preset.

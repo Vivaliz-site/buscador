@@ -23,7 +23,7 @@ assert.equal(valid.model, 'gpt-5.6-sol');
 assert.equal(valid.effort, 'xhigh');
 assert.equal(valid.web_search, true);
 
-assert.equal(resolveCodexWebSearchMode(true, undefined), 'cached');
+assert.equal(resolveCodexWebSearchMode(true, undefined), 'live');
 assert.equal(resolveCodexWebSearchMode(true, 'cached'), 'cached');
 assert.equal(resolveCodexWebSearchMode(true, 'live'), 'live');
 assert.equal(resolveCodexWebSearchMode(false, 'live'), 'disabled');
@@ -66,6 +66,13 @@ fs.symlinkSync(bridgeTarget, bridgeLink);
 assert.equal(isDirectInvocation(pathToFileURL(bridgeTarget).href, bridgeLink), true);
 assert.equal(isDirectInvocation(pathToFileURL(bridgeTarget).href, import.meta.filename), false);
 fs.rmSync(invocationDir, { recursive: true, force: true });
+
+const bridgeSource = fs.readFileSync(bridgeTarget, 'utf8');
+assert.match(
+  bridgeSource,
+  /Promise\.allSettled\(profiles\.map/,
+  'cold health probes must run profiles concurrently'
+);
 
 const safe = sanitizeBridgeError(
   'Authorization: Bearer sk-secret-token quota reached for user@example.com'

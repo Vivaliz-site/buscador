@@ -10,6 +10,8 @@ import {
   claudeFailureDetail,
   buildClaudeArgs,
   isDirectInvocation,
+  resolveClaudeAuthSource,
+  parseClaudeOutput,
 } from '../ops/buscador/claude-bridge.mjs';
 
 const valid = validateRequest({
@@ -42,6 +44,8 @@ assert(args.includes('--safe-mode'));
 assert(args.includes('--restricted'));
 assert(args.includes('--no-session-persistence'));
 assert(args.includes('WebSearch,WebFetch'));
+assert(args.includes('stream-json'));
+assert(args.includes('--verbose'));
 assert(!args.includes(valid.prompt), 'user prompt must go over stdin, not argv');
 
 const noWebArgs = buildClaudeArgs({ ...valid, web_search: false });
@@ -63,9 +67,49 @@ const sessionLimitDetail = claudeFailureDetail({
 });
 assert.match(sessionLimitDetail, /session limit/);
 
+const parsedStream = parseClaudeOutput([
+  JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'WebSearch', input: { query: 'example' } }] } }),
+  JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', content: [{ type: 'text', text: 'Source https://example.com/product?a=1' }] }] } }),
+  JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'Resumo final sem URL literal.', usage: { input_tokens: 10 } }),
+].join('\n'));
+assert.equal(parsedStream.result, 'Resumo final sem URL literal.');
+assert.equal(parsedStream.is_error, false);
+assert.equal(parsedStream.usage.input_tokens, 10);
+assert.deepEqual(parsedStream.sources, ['https://example.com/product?a=1']);
+
+const parsedLegacy = parseClaudeOutput(JSON.stringify({
+  is_error: false,
+  result: 'Veja https://example.org/legacy',
+  usage: { output_tokens: 4 },
+}));
+assert.deepEqual(parsedLegacy.sources, ['https://example.org/legacy']);
+
 const safe = sanitizeBridgeError('Authorization: Bearer sk-ant-oat-secret user@example.com');
 assert(!safe.includes('sk-ant-oat-secret'));
 assert(!safe.includes('user@example.com'));
+
+const authDir = fs.mkdtempSync(path.join(os.tmpdir(), 'buscador-claude-auth-'));
+const credentialPath = path.join(authDir, '.credentials.json');
+fs.writeFileSync(credentialPath, JSON.stringify({
+  claudeAiOauth: {
+    accessToken: 'credential-access-token',
+    refreshToken: 'credential-refresh-token',
+  },
+}), { mode: 0o600 });
+const explicitAuth = resolveClaudeAuthSource('explicit-token', credentialPath);
+assert.equal(explicitAuth.mode, 'env_token');
+assert.equal(explicitAuth.configured, true);
+assert.equal(explicitAuth.token, 'explicit-token');
+const storedAuth = resolveClaudeAuthSource('', credentialPath);
+assert.equal(storedAuth.mode, 'credential_store');
+assert.equal(storedAuth.configured, true);
+assert.equal(storedAuth.token, '', 'credential-store mode must let Claude CLI own refresh instead of exporting a stale access token');
+assert.deepEqual(resolveClaudeAuthSource('', path.join(authDir, 'missing.json')), {
+  mode: 'none',
+  configured: false,
+  token: '',
+});
+fs.rmSync(authDir, { recursive: true, force: true });
 
 const invocationDir = fs.mkdtempSync(path.join(os.tmpdir(), 'buscador-claude-invocation-'));
 const bridgeTarget = fileURLToPath(new URL('../ops/buscador/claude-bridge.mjs', import.meta.url));
@@ -75,4 +119,8 @@ assert.equal(isDirectInvocation(pathToFileURL(bridgeTarget).href, bridgeLink), t
 assert.equal(isDirectInvocation(pathToFileURL(bridgeTarget).href, import.meta.filename), false);
 fs.rmSync(invocationDir, { recursive: true, force: true });
 
+const bridgeSource = fs.readFileSync(bridgeTarget, 'utf8');
+assert.match(bridgeSource, /auth status.*cannot perform inference/s, 'health probe must reject auth-status-only false green');
+assert.match(bridgeSource, /buildClaudeArgs\(request\).*20000/s, 'health probe must execute a bounded real inference');
+assert.match(bridgeSource, /credential_store_configured/, 'health must expose credential-store auth source without secrets');
 console.log('BUSCADOR_CLAUDE_BRIDGE_TEST=PASS');

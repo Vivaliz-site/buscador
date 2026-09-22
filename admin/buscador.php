@@ -49,7 +49,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
 .health{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
 .pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 9px;font-size:.76rem}
 .dot{width:8px;height:8px;border-radius:50%;background:#999}
-.dot.ok{background:var(--ok)}.dot.bad{background:var(--bad)}
+.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}
 .meta{margin-top:12px;color:var(--muted);font-size:.83rem}
 .workspace{display:grid;grid-template-columns:minmax(0,2fr) minmax(310px,1fr);gap:16px;margin-top:16px}
 .feed{min-height:360px}
@@ -149,7 +149,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
 const API='/api/agent/buscador.php';
 const CSRF=<?= json_encode($csrf, JSON_UNESCAPED_SLASHES) ?>;
 const names={openai:'OpenAI',anthropic:'Claude',gemini:'Gemini'};
-const transportNames={codex_chatgpt:'via ChatGPT/Codex',direct:'direto',openrouter:'via OpenRouter',manual:'manual'};
+const transportNames={codex_chatgpt:'via ChatGPT/Codex',openrouter:'via OpenRouter',manual_chatgpt:'ChatGPT manual'};
 let running=false;
 let count=0;
 
@@ -157,6 +157,19 @@ function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&l
 function phaseName(p){return ({research:'Pesquisa independente',critique:'Contraditório',converge:'Convergência',consensus:'Síntese de consenso'}[p]||p);}
 function transportLabel(t){return transportNames[t]||String(t||'direto');}
 function fmtMs(ms){if(!Number.isFinite(ms))return '—';return ms<1000?ms+' ms':(ms/1000).toFixed(1)+' s';}
+function healthState(p){
+  const state=String(p?.health||'');
+  if(['verified','configured_unverified','unavailable'].includes(state))return state;
+  return p?.configured===true?'configured_unverified':'unavailable';
+}
+function healthClass(state){return state==='verified'?'ok':state==='configured_unverified'?'warn':'bad';}
+function healthLabel(state){return state==='verified'?'verificado':state==='configured_unverified'?'configurado · não verificado':'indisponível';}
+function setProviderHealth(provider,state,note=''){
+  const pill=document.getElementById('health-'+String(provider||''));
+  if(!pill)return;
+  pill.innerHTML='<span class="dot '+healthClass(state)+'"></span>'+esc(names[provider]||provider)+' · '+esc(healthLabel(state));
+  pill.title=note||healthLabel(state);
+}
 function linkSource(url){const u=esc(url);return '<a target="_blank" rel="noopener noreferrer" href="'+u+'">'+u+'</a>';}
 
 function addPhase(phase){
@@ -193,14 +206,14 @@ function addManual(e){
   agent.className='agent';
   agent.textContent='OpenAI — intervenção manual necessária';
   const model=document.createElement('small');
-  model.textContent=String(e.model||'')+' · '+transportLabel('manual');
+  model.textContent=String(e.model||'')+' · '+transportLabel('manual_chatgpt');
   agent.appendChild(model);
   head.appendChild(agent);
   div.appendChild(head);
 
   const note=document.createElement('div');
   note.className='manual-note';
-  note.textContent='Abra a sessão ChatGPT autenticada da VM/RDP e envie este prompt. A resposta não será lida automaticamente pelo Buscador.';
+  note.textContent='Os perfis ChatGPT/Codex ficaram sem capacidade. Use o ChatGPT autenticado para executar este prompt sem recorrer à OpenAI Platform API.';
   div.appendChild(note);
 
   if(Array.isArray(e.attempts)&&e.attempts.length){
@@ -229,6 +242,13 @@ function addManual(e){
   });
   div.appendChild(button);
 
+  const openChat=document.createElement('button');
+  openChat.type='button';
+  openChat.className='manual-copy';
+  openChat.textContent='Abrir ChatGPT';
+  openChat.addEventListener('click',()=>window.open('https://chatgpt.com/','_blank','noopener,noreferrer'));
+  div.appendChild(openChat);
+
   document.getElementById('feed').appendChild(div);
   div.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
@@ -250,11 +270,16 @@ function handleEvent(e){
     document.getElementById('duration').textContent='—';
   }else if(e.type==='phase_started'){
     addPhase(e.phase);
+  }else if(e.type==='agent_started'){
+    setProviderHealth(e.provider,'configured_unverified','Executando chamada real no ciclo atual.');
   }else if(e.type==='agent_message'){
+    setProviderHealth(e.provider,'verified','Resposta real recebida no ciclo atual.');
     count++;document.getElementById('messages').textContent=String(count);addMessage(e);
   }else if(e.type==='agent_manual_required'){
+    setProviderHealth(e.provider,'configured_unverified','Automação indisponível; intervenção manual necessária.');
     addManual(e);
   }else if(e.type==='agent_error'||e.type==='moderator_error'){
+    if(e.provider)setProviderHealth(e.provider,'unavailable','Falha real no ciclo atual.');
     addMessage({...e,text:'Falha do provedor: '+(e.error||'erro não especificado'),ok:false});
   }else if(e.type==='consensus'){
     document.getElementById('consensus').textContent=e.text||'Consenso vazio.';
@@ -269,13 +294,18 @@ async function loadHealth(){
   try{
     const r=await fetch(API+'?health=1&profile='+encodeURIComponent(profile),{credentials:'same-origin'});
     const j=await r.json();
+    if(!r.ok||j.ok!==true||j.endpoint!=='buscador'||!j.providers||typeof j.providers!=='object'){
+      throw new Error('invalid_health_response');
+    }
     const health=document.getElementById('health');health.innerHTML='';
     const models=[];
     for(const [id,p] of Object.entries(j.providers||{})){
-      const pill=document.createElement('span');pill.className='pill';
-      pill.innerHTML='<span class="dot '+(p.configured?'ok':'bad')+'"></span>'+esc(names[id]||id);
+      const state=healthState(p);
+      const pill=document.createElement('span');pill.className='pill';pill.id='health-'+id;
+      pill.innerHTML='<span class="dot '+healthClass(state)+'"></span>'+esc(names[id]||id)+' · '+esc(healthLabel(state));
+      pill.title=state==='verified'?'Autenticação e disponibilidade comprovadas pelo transporte atual.':state==='configured_unverified'?'Configuração detectada; autenticação só é comprovada por probe/execução real.':'Provider indisponível no health atual.';
       health.appendChild(pill);
-      let detail=(names[id]||id)+': '+p.model+' · '+p.reasoning;
+      let detail=(names[id]||id)+': '+p.model+' · '+p.reasoning+' · '+healthLabel(state);
       if(id==='openai'&&Array.isArray(p.transport_order)){
         detail+=' · '+p.transport_order.map(transportLabel).join(' → ');
         if(p.codex_web_search_mode){detail+=' · web '+p.codex_web_search_mode;}

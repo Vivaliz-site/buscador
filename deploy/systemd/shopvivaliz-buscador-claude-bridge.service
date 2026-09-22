@@ -1,0 +1,27 @@
+[Unit]
+Description=ShopVivaliz Buscador Claude OAuth bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/.local/share/shopvivaliz-buscador-claude/workspace
+ExecStart=/usr/local/bin/node /home/ubuntu/shopvivaliz-deploy/current/ops/buscador/claude-bridge.mjs
+Environment=BUSCADOR_CLAUDE_BRIDGE_PORT=17657
+Environment=BUSCADOR_CLAUDE_BIN=/home/ubuntu/.local/bin/claude
+Environment=BUSCADOR_CLAUDE_ENV_PATH=/home/ubuntu/shopvivaliz-deploy/shared/.env
+Environment=BUSCADOR_CLAUDE_WORKDIR=/home/ubuntu/.local/share/shopvivaliz-buscador-claude/workspace
+Environment=HOME=/home/ubuntu
+Environment=PATH=/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+KillMode=mixed
+NoNewPrivileges=yes
+PrivateTmp=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

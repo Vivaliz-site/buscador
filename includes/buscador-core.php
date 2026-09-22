@@ -5,8 +5,8 @@ declare(strict_types=1);
  * ShopVivaliz Buscador core.
  *
  * Three-provider research/debate engine:
- * - OpenAI Responses API
- * - Anthropic Messages API
+ * - OpenAI via ChatGPT-authenticated Codex bridge
+ * - Anthropic via Claude Code account bridge
  * - Google Gemini GenerateContent API
  *
  * Secrets are read only from the protected runtime environment. Never include
@@ -32,7 +32,7 @@ final class SvaisManualInterventionRequired extends RuntimeException
 
 function svais_openai_transport_order(): array
 {
-    return ['codex_chatgpt', 'direct', 'manual'];
+    return ['codex_chatgpt', 'manual_chatgpt'];
 }
 
 function svais_anthropic_transport_order(): array
@@ -42,7 +42,7 @@ function svais_anthropic_transport_order(): array
 
 function svais_gemini_transport_order(): array
 {
-    return ['vertex_oauth', 'direct', 'openrouter'];
+    return ['vertex_oauth', 'direct'];
 }
 
 function svais_failure_class(Throwable $e): string
@@ -65,7 +65,7 @@ function svais_failure_class(Throwable $e): string
 
 function svais_manual_openai_prompt(array $cfg, string $system, string $prompt): string
 {
-    return "AI SQUAD — INTERVENÇÃO MANUAL OPENAI\n"
+    return "AI SQUAD — FALLBACK CHATGPT\n"
         . "Modelo solicitado: " . (string)$cfg['model'] . "\n\n"
         . "INSTRUÇÕES DO AGENTE:\n{$system}\n\n"
         . "TAREFA DESTA FASE:\n{$prompt}";
@@ -99,7 +99,7 @@ function svais_profile_catalog(): array
                 'web_search_max_uses' => 10,
             ],
             'gemini' => [
-                'model' => getenv('BUSCADOR_GEMINI_MODEL') ?: 'gemini-3.5-flash',
+                'model' => getenv('BUSCADOR_GEMINI_MODEL') ?: 'gemini-2.5-flash',
                 'thinking_level' => 'MEDIUM',
                 'max_output_tokens' => 7000,
             ],
@@ -120,7 +120,7 @@ function svais_profile_catalog(): array
                 'web_search_max_uses' => 6,
             ],
             'gemini' => [
-                'model' => getenv('BUSCADOR_GEMINI_BALANCED_MODEL') ?: 'gemini-3.5-flash',
+                'model' => getenv('BUSCADOR_GEMINI_BALANCED_MODEL') ?: 'gemini-2.5-flash',
                 'thinking_level' => 'MEDIUM',
                 'max_output_tokens' => 4500,
             ],
@@ -141,7 +141,7 @@ function svais_profile_catalog(): array
                 'web_search_max_uses' => 0,
             ],
             'gemini' => [
-                'model' => getenv('BUSCADOR_GEMINI_FAST_MODEL') ?: 'gemini-3.5-flash',
+                'model' => getenv('BUSCADOR_GEMINI_FAST_MODEL') ?: 'gemini-2.5-flash',
                 'thinking_level' => 'LOW',
                 'max_output_tokens' => 2500,
             ],
@@ -175,8 +175,11 @@ function svais_codex_bridge_health(): array
     }
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT_MS => 1500,
-        CURLOPT_CONNECTTIMEOUT_MS => 300,
+        // A cold Codex health check performs live account/rate-limit probes.
+        // Keep this above the bridge's 20s per-profile deadline; the bridge
+        // probes profiles concurrently so the wall-clock bound remains ~20s.
+        CURLOPT_TIMEOUT_MS => 25000,
+        CURLOPT_CONNECTTIMEOUT_MS => 1000,
         CURLOPT_PROXY => '',
     ]);
     $body = curl_exec($ch);
@@ -197,6 +200,10 @@ function svais_codex_bridge_health(): array
         'authenticated' => ($data['auth_mode'] ?? '') === 'chatgpt',
         'available' => ($data['ok'] ?? false) === true
             && (int)($data['available_profile_count'] ?? 0) > 0,
+        'profile_count' => max(0, (int)($data['profile_count'] ?? 0)),
+        'authenticated_profile_count' => max(0, (int)($data['authenticated_profile_count'] ?? 0)),
+        'available_profile_count' => max(0, (int)($data['available_profile_count'] ?? 0)),
+        'exhausted_profile_count' => max(0, (int)($data['exhausted_profile_count'] ?? 0)),
         'web_search_mode' => $webSearchMode,
     ];
 }
@@ -254,28 +261,77 @@ function svais_google_vertex_configured(): bool
     return $clientId !== '' && $clientSecret !== '' && $refreshToken !== '' && $project !== '';
 }
 
+function svais_health_state(bool $verified, bool $configured): string
+{
+    if ($verified) {
+        return 'verified';
+    }
+    return $configured ? 'configured_unverified' : 'unavailable';
+}
+
+function svais_cycle_complete_for_consensus(array $transcript, array $providers, array $phases): bool
+{
+    if ($providers === [] || $phases === []) {
+        return false;
+    }
+
+    $seen = [];
+    foreach ($transcript as $entry) {
+        if (!is_array($entry)
+            || ($entry['type'] ?? '') !== 'agent_message'
+            || ($entry['ok'] ?? false) !== true) {
+            continue;
+        }
+        $provider = (string)($entry['provider'] ?? '');
+        $phase = (string)($entry['phase'] ?? '');
+        if ($provider !== '' && $phase !== '') {
+            $seen[$provider][$phase] = true;
+        }
+    }
+
+    foreach ($providers as $provider) {
+        foreach ($phases as $phase) {
+            if (($seen[(string)$provider][(string)$phase] ?? false) !== true) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 function svais_provider_state(array $profile): array
 {
-    $openRouterConfigured = trim((string)(getenv('OPENROUTER_API_KEY') ?: '')) !== '';
-    $openAiDirectConfigured = trim((string)(getenv('OPENAI_API_KEY') ?: '')) !== '';
     $geminiDirectConfigured = trim((string)(getenv('GEMINI_API_KEY') ?: getenv('GOOGLE_API_KEY') ?: '')) !== '';
     $vertexConfigured = svais_google_vertex_configured();
     $codex = svais_codex_bridge_health();
     $claude = svais_claude_bridge_health();
+    $openAiAuthenticated = ($codex['authenticated'] ?? false) === true;
+    $openAiVerified = $openAiAuthenticated && ($codex['available'] ?? false) === true;
+    $openAiConfigured = $openAiAuthenticated;
+    $anthropicConfigured = ($claude['configured'] ?? false) === true;
+    $anthropicVerified = ($claude['authenticated'] ?? false) === true && ($claude['available'] ?? false) === true;
+    $geminiConfigured = $vertexConfigured || $geminiDirectConfigured;
     return [
         'openai' => [
-            'configured' => $codex['available'] || $openAiDirectConfigured,
+            'configured' => $openAiConfigured,
+            'health' => svais_health_state($openAiVerified, $openAiConfigured),
             'codex_chatgpt_authenticated' => $codex['authenticated'],
             'codex_chatgpt_available' => $codex['available'],
             'codex_web_search_mode' => (string)($codex['web_search_mode'] ?? 'unknown'),
-            'direct_configured' => $openAiDirectConfigured,
-            'manual_fallback' => true,
+            'chatgpt_profile_count' => (int)($codex['profile_count'] ?? 0),
+            'chatgpt_authenticated_profile_count' => (int)($codex['authenticated_profile_count'] ?? 0),
+            'chatgpt_available_profile_count' => (int)($codex['available_profile_count'] ?? 0),
+            'chatgpt_exhausted_profile_count' => (int)($codex['exhausted_profile_count'] ?? 0),
+            'account_login_only' => true,
+            'manual_chatgpt_fallback' => true,
+            'platform_api_fallback' => false,
             'transport_order' => svais_openai_transport_order(),
             'model' => (string)$profile['openai']['model'],
             'reasoning' => (string)$profile['openai']['effort'],
         ],
         'anthropic' => [
-            'configured' => $claude['available'],
+            'configured' => $anthropicConfigured,
+            'health' => svais_health_state($anthropicVerified, $anthropicConfigured),
             'claude_code_oauth_configured' => $claude['configured'],
             'claude_code_authenticated' => $claude['authenticated'],
             'claude_code_available' => $claude['available'],
@@ -285,10 +341,10 @@ function svais_provider_state(array $profile): array
             'reasoning' => (string)$profile['anthropic']['effort'],
         ],
         'gemini' => [
-            'configured' => $vertexConfigured || $geminiDirectConfigured || $openRouterConfigured,
+            'configured' => $geminiConfigured,
+            'health' => svais_health_state(false, $geminiConfigured),
             'vertex_oauth_configured' => $vertexConfigured,
             'direct_configured' => $geminiDirectConfigured,
-            'openrouter_fallback_configured' => $openRouterConfigured,
             'transport_order' => svais_gemini_transport_order(),
             'model' => (string)$profile['gemini']['model'],
             'reasoning' => strtolower((string)$profile['gemini']['thinking_level']),
@@ -594,6 +650,23 @@ function svais_google_oauth_context(): array
     return $cached = ['access_token' => $accessToken, 'project' => $project];
 }
 
+function svais_gemini_thinking_config(array $cfg): array
+{
+    $model = strtolower(trim((string)($cfg['model'] ?? '')));
+    $level = strtolower(trim((string)($cfg['thinking_level'] ?? 'medium')));
+
+    if (str_starts_with($model, 'gemini-2.5-')) {
+        $budget = match ($level) {
+            'minimal', 'low' => 1024,
+            'high', 'xhigh', 'max' => 24576,
+            default => 8192,
+        };
+        return ['thinkingBudget' => $budget];
+    }
+
+    return ['thinkingLevel' => $level];
+}
+
 function svais_gemini_vertex_call(array $cfg, string $system, string $prompt, bool $webSearch): array
 {
     $oauth = svais_google_oauth_context();
@@ -605,7 +678,7 @@ function svais_gemini_vertex_call(array $cfg, string $system, string $prompt, bo
         ]],
         'generationConfig' => [
             'maxOutputTokens' => (int)$cfg['max_output_tokens'],
-            'thinkingConfig' => ['thinkingLevel' => (string)$cfg['thinking_level']],
+            'thinkingConfig' => svais_gemini_thinking_config($cfg),
         ],
     ];
     if ($webSearch) {
@@ -636,145 +709,6 @@ function svais_gemini_vertex_call(array $cfg, string $system, string $prompt, bo
     ];
 }
 
-function svais_anthropic_vertex_call(array $cfg, string $system, string $prompt, bool $webSearch): array
-{
-    $oauth = svais_google_oauth_context();
-    $maxTokens = max(1025, (int)$cfg['max_tokens']);
-    $budget = match ((string)($cfg['effort'] ?? 'high')) {
-        'xhigh' => 6000,
-        'high' => 3500,
-        'medium' => 2000,
-        default => 1024,
-    };
-    $budget = min($budget, $maxTokens - 1);
-
-    $payload = [
-        'anthropic_version' => 'vertex-2023-10-16',
-        'max_tokens' => $maxTokens,
-        'stream' => false,
-        'system' => $system,
-        'messages' => [['role' => 'user', 'content' => $prompt]],
-        'thinking' => ['type' => 'enabled', 'budget_tokens' => $budget],
-    ];
-    if ($webSearch && (int)($cfg['web_search_max_uses'] ?? 0) > 0) {
-        $payload['tools'] = [[
-            'type' => 'web_search_20250305',
-            'name' => 'web_search',
-            'max_uses' => (int)$cfg['web_search_max_uses'],
-        ]];
-    }
-
-    $model = rawurlencode((string)$cfg['model']);
-    $project = rawurlencode((string)$oauth['project']);
-    $data = svais_http_json(
-        'https://aiplatform.googleapis.com/v1/projects/' . $project
-            . '/locations/global/publishers/anthropic/models/' . $model . ':rawPredict',
-        [
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . (string)$oauth['access_token'],
-        ],
-        $payload,
-        240
-    );
-
-    $urls = [];
-    svais_collect_urls($data, $urls);
-    return [
-        'text' => svais_text_from_anthropic($data),
-        'sources' => array_keys($urls),
-        'usage' => $data['usage'] ?? [],
-        'model' => (string)$cfg['model'],
-        'transport' => 'vertex_oauth',
-    ];
-}
-
-function svais_openai_call(array $cfg, string $system, string $prompt, bool $webSearch): array
-{
-    $key = trim((string)(getenv('OPENAI_API_KEY') ?: ''));
-    if ($key === '') {
-        throw new RuntimeException('OPENAI_API_KEY_not_configured');
-    }
-
-    $payload = [
-        'model' => (string)$cfg['model'],
-        'instructions' => $system,
-        'input' => $prompt,
-        'reasoning' => ['effort' => (string)$cfg['effort']],
-        'max_output_tokens' => (int)$cfg['max_output_tokens'],
-    ];
-    if ($webSearch) {
-        $payload['tools'] = [['type' => 'web_search']];
-        $payload['tool_choice'] = 'auto';
-    }
-
-    $data = svais_http_json('https://api.openai.com/v1/responses', [
-        'Content-Type: application/json',
-        'Authorization: Bearer ' . $key,
-    ], $payload, 240);
-
-    $urls = [];
-    svais_collect_urls($data, $urls);
-    return [
-        'text' => svais_text_from_openai($data),
-        'sources' => array_keys($urls),
-        'usage' => $data['usage'] ?? [],
-        'model' => (string)($data['model'] ?? $cfg['model']),
-    ];
-}
-
-function svais_anthropic_call(array $cfg, string $system, string $prompt, bool $webSearch): array
-{
-    $key = trim((string)(getenv('ANTHROPIC_API_KEY') ?: ''));
-    if ($key === '') {
-        throw new RuntimeException('ANTHROPIC_API_KEY_not_configured');
-    }
-
-    $payload = [
-        'model' => (string)$cfg['model'],
-        'max_tokens' => (int)$cfg['max_tokens'],
-        'system' => $system,
-        'messages' => [['role' => 'user', 'content' => $prompt]],
-        'thinking' => ['type' => 'adaptive'],
-        'output_config' => ['effort' => (string)$cfg['effort']],
-    ];
-    if ($webSearch && (int)$cfg['web_search_max_uses'] > 0) {
-        $payload['tools'] = [[
-            'type' => 'web_search_20250305',
-            'name' => 'web_search',
-            'max_uses' => (int)$cfg['web_search_max_uses'],
-            'user_location' => [
-                'type' => 'approximate',
-                'country' => 'BR',
-                'timezone' => 'America/Sao_Paulo',
-            ],
-        ]];
-    }
-
-    $data = svais_http_json('https://api.anthropic.com/v1/messages', [
-        'Content-Type: application/json',
-        'x-api-key: ' . $key,
-        'anthropic-version: 2023-06-01',
-    ], $payload, 240);
-
-    if (($data['stop_reason'] ?? '') === 'pause_turn') {
-        $payload['messages'][] = ['role' => 'assistant', 'content' => $data['content'] ?? []];
-        $data = svais_http_json('https://api.anthropic.com/v1/messages', [
-            'Content-Type: application/json',
-            'x-api-key: ' . $key,
-            'anthropic-version: 2023-06-01',
-        ], $payload, 240);
-    }
-
-    $urls = [];
-    svais_collect_urls($data, $urls);
-    return [
-        'text' => svais_text_from_anthropic($data),
-        'sources' => array_keys($urls),
-        'usage' => $data['usage'] ?? [],
-        'model' => (string)($data['model'] ?? $cfg['model']),
-    ];
-}
-
 function svais_gemini_call(array $cfg, string $system, string $prompt, bool $webSearch): array
 {
     $key = trim((string)(getenv('GEMINI_API_KEY') ?: getenv('GOOGLE_API_KEY') ?: ''));
@@ -790,7 +724,7 @@ function svais_gemini_call(array $cfg, string $system, string $prompt, bool $web
         ]],
         'generationConfig' => [
             'maxOutputTokens' => (int)$cfg['max_output_tokens'],
-            'thinkingConfig' => ['thinkingLevel' => (string)$cfg['thinking_level']],
+            'thinkingConfig' => svais_gemini_thinking_config($cfg),
         ],
     ];
     if ($webSearch) {
@@ -818,65 +752,9 @@ function svais_gemini_call(array $cfg, string $system, string $prompt, bool $web
     ];
 }
 
-function svais_openrouter_model_slug(string $provider, string $model): string
-{
-    if (str_contains($model, '/')) {
-        return $model;
-    }
-    return match ($provider) {
-        'openai' => 'openai/' . $model,
-        'anthropic' => 'anthropic/' . $model,
-        'gemini' => 'google/' . $model,
-        default => $model,
-    };
-}
-
-function svais_openrouter_call(string $provider, array $cfg, string $system, string $prompt, bool $webSearch): array
-{
-    $key = trim((string)(getenv('OPENROUTER_API_KEY') ?: ''));
-    if ($key === '') {
-        throw new RuntimeException('OPENROUTER_API_KEY_not_configured');
-    }
-
-    $effort = (string)($cfg['effort'] ?? strtolower((string)($cfg['thinking_level'] ?? 'high')));
-    $maxTokens = (int)($cfg['max_output_tokens'] ?? $cfg['max_tokens'] ?? 5000);
-    $payload = [
-        'model' => svais_openrouter_model_slug($provider, (string)$cfg['model']),
-        'messages' => [
-            ['role' => 'system', 'content' => $system],
-            ['role' => 'user', 'content' => $prompt],
-        ],
-        'max_tokens' => $maxTokens,
-        'reasoning' => ['effort' => strtolower($effort)],
-    ];
-    if ($webSearch) {
-        $payload['tools'] = [['type' => 'openrouter:web_search']];
-    }
-
-    $data = svais_http_json('https://openrouter.ai/api/v1/chat/completions', [
-        'Content-Type: application/json',
-        'Authorization: Bearer ' . $key,
-        'HTTP-Referer: https://shopvivaliz.com.br',
-        'X-Title: ShopVivaliz Buscador',
-    ], $payload, 240);
-
-    $text = trim((string)($data['choices'][0]['message']['content'] ?? ''));
-    $urls = [];
-    svais_collect_urls($data, $urls);
-    return [
-        'text' => $text,
-        'sources' => array_keys($urls),
-        'usage' => $data['usage'] ?? [],
-        'model' => (string)($data['model'] ?? $payload['model']),
-        'transport' => 'openrouter',
-    ];
-}
-
 function svais_provider_model_matches(string $provider, string $requested, string $actual): bool
 {
-    if ($requested === $actual) return true;
-    if ($actual === '') return false;
-    return $actual === svais_openrouter_model_slug($provider, $requested);
+    return $requested !== '' && $requested === $actual;
 }
 
 function svais_transport_exhausted(string $provider, array $attempts): RuntimeException
@@ -948,7 +826,6 @@ function svais_gemini_dispatch(
         return match ($transport) {
             'vertex_oauth' => svais_gemini_vertex_call($cfg, $system, $prompt, $webSearch),
             'direct' => svais_gemini_call($cfg, $system, $prompt, $webSearch),
-            'openrouter' => svais_openrouter_call('gemini', $cfg, $system, $prompt, $webSearch),
             default => throw new InvalidArgumentException('unknown_gemini_transport'),
         };
     };
@@ -991,14 +868,13 @@ function svais_openai_dispatch(
     ): array {
         return match ($transport) {
             'codex_chatgpt' => svais_codex_bridge_call($cfg, $system, $prompt, $webSearch),
-            'direct' => svais_openai_call($cfg, $system, $prompt, $webSearch),
             default => throw new InvalidArgumentException('unknown_openai_transport'),
         };
     };
 
     $attempts = [];
     foreach (svais_openai_transport_order() as $transport) {
-        if ($transport === 'manual') break;
+        if ($transport === 'manual_chatgpt') break;
         if ($skipCodex && $transport === 'codex_chatgpt') continue;
 
         try {
