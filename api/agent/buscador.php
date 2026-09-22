@@ -145,7 +145,7 @@ if ($authMode === 'none') {
 }
 if ($authMode === 'session') {
     $csrf = svais_api_header('X-CSRF-Token');
-    $expectedCsrf = (string)($_SESSION['ai_squad_csrf'] ?? '');
+    $expectedCsrf = (string)($_SESSION['buscador_csrf'] ?? '');
     if ($csrf === '' || $expectedCsrf === '' || !hash_equals($expectedCsrf, $csrf)) {
         svais_api_json(403, ['ok' => false, 'error' => 'csrf_failed']);
     }
