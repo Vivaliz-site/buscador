@@ -123,6 +123,40 @@ ais_assert(
     !svais_cycle_complete_for_consensus($errorTranscript, ['openai', 'anthropic', 'gemini'], ['research', 'critique', 'converge']),
     'provider error must block consensus coverage'
 );
+$intermediateFailure = $completeTranscript;
+$intermediateFailure[2] = [
+    'type' => 'agent_error',
+    'ok' => false,
+    'provider' => 'gemini',
+    'phase' => 'research',
+    'failure_class' => 'timeout',
+];
+$intermediateCoverage = svais_cycle_coverage(
+    $intermediateFailure,
+    ['openai', 'anthropic', 'gemini'],
+    ['research', 'critique', 'converge']
+);
+ais_assert(
+    ($intermediateCoverage['provider_status']['gemini'] ?? '') === 'error',
+    'a later Gemini success must not mask an earlier phase failure'
+);
+ais_assert(
+    ($intermediateCoverage['provider_phase_status']['gemini']['research']['status'] ?? '') === 'error',
+    'intermediate provider failure must remain observable by phase'
+);
+ais_assert(
+    ($intermediateCoverage['provider_phase_status']['gemini']['research']['failure_class'] ?? '') === 'timeout',
+    'intermediate provider failure class must remain observable'
+);
+ais_assert(
+    ($intermediateCoverage['provider_phase_status']['gemini']['critique']['status'] ?? '') === 'ok'
+    && ($intermediateCoverage['provider_phase_status']['gemini']['converge']['status'] ?? '') === 'ok',
+    'later successful phases must be retained alongside the failure'
+);
+ais_assert(
+    ($intermediateCoverage['complete_provider_coverage'] ?? true) === false,
+    'intermediate provider failure must block consensus coverage despite later success'
+);
 
 $order = svais_openai_transport_order();
 ais_assert($order === ['codex_chatgpt', 'manual_chatgpt'], 'OpenAI transport order mismatch');
@@ -330,7 +364,8 @@ ais_assert(!str_contains($apiSource, $legacyPolicy), 'stale Claude policy label 
 $apiSource = file_get_contents(__DIR__ . '/../api/agent/buscador.php');
 ais_assert(str_contains($apiSource, 'set_time_limit(900)'), 'Buscador API must allow deep-research cycles beyond default PHP timeout');
 ais_assert(str_contains($apiSource, 'ignore_user_abort(true)'), 'Buscador API must finish audit cycle after transient client disconnect');
-ais_assert(str_contains($apiSource, 'svais_cycle_complete_for_consensus'), 'API must gate consensus on complete provider/phase coverage');
+ais_assert(str_contains($apiSource, 'svais_cycle_coverage'), 'API must gate consensus on complete provider/phase coverage');
+ais_assert(str_contains($apiSource, '$completeCoverage'), 'API must expose the complete provider/phase coverage gate');
 ais_assert(!str_contains($apiSource, 'if ($successful !== [])'), 'API must not allow partial-success consensus');
 ais_assert(str_contains((string)file_get_contents(dirname(__DIR__) . '/includes/buscador-core.php'), 'CURLOPT_TIMEOUT_MS => 25000'), 'Codex health probe timeout must cover live bridge verification');
 echo "BUSCADOR_CORE_TEST=PASS\n";

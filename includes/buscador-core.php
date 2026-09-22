@@ -269,34 +269,83 @@ function svais_health_state(bool $verified, bool $configured): string
     return $configured ? 'configured_unverified' : 'unavailable';
 }
 
-function svais_cycle_complete_for_consensus(array $transcript, array $providers, array $phases): bool
+function svais_cycle_coverage(array $transcript, array $providers, array $phases): array
 {
-    if ($providers === [] || $phases === []) {
-        return false;
+    $providerStatus = [];
+    $providerPhaseStatus = [];
+    foreach ($providers as $provider) {
+        $provider = (string)$provider;
+        foreach ($phases as $phase) {
+            $providerPhaseStatus[$provider][(string)$phase] = ['status' => 'missing'];
+        }
     }
 
-    $seen = [];
     foreach ($transcript as $entry) {
-        if (!is_array($entry)
-            || ($entry['type'] ?? '') !== 'agent_message'
-            || ($entry['ok'] ?? false) !== true) {
+        if (!is_array($entry)) {
             continue;
         }
         $provider = (string)($entry['provider'] ?? '');
         $phase = (string)($entry['phase'] ?? '');
-        if ($provider !== '' && $phase !== '') {
-            $seen[$provider][$phase] = true;
+        if (!isset($providerPhaseStatus[$provider][$phase])) {
+            continue;
+        }
+
+        $status = match ((string)($entry['type'] ?? '')) {
+            'agent_message' => ($entry['ok'] ?? false) === true ? 'ok' : null,
+            'agent_error' => 'error',
+            'agent_manual_required' => 'manual_required',
+            default => null,
+        };
+        if ($status === null) {
+            continue;
+        }
+
+        $current = (string)($providerPhaseStatus[$provider][$phase]['status'] ?? 'missing');
+        // A recovered/retried call is useful diagnostic evidence, but it must
+        // never erase the earlier phase failure from the coverage gate.
+        if ($status === 'ok' && in_array($current, ['error', 'manual_required'], true)) {
+            continue;
+        }
+
+        $phaseStatus = ['status' => $status];
+        if ($status !== 'ok') {
+            $phaseStatus['failure_class'] = (string)($entry['failure_class'] ?? $status);
+        }
+        $providerPhaseStatus[$provider][$phase] = $phaseStatus;
+    }
+
+    $complete = $providers !== [] && $phases !== [];
+    foreach ($providers as $provider) {
+        $provider = (string)$provider;
+        $phaseStates = $providerPhaseStatus[$provider] ?? [];
+        $states = array_map(
+            static fn(array $phaseStatus): string => (string)($phaseStatus['status'] ?? 'missing'),
+            $phaseStates
+        );
+        if ($states === [] || in_array('manual_required', $states, true)) {
+            $providerStatus[$provider] = 'manual_required';
+        } elseif (in_array('error', $states, true)) {
+            $providerStatus[$provider] = 'error';
+        } elseif (in_array('missing', $states, true)) {
+            $providerStatus[$provider] = 'incomplete';
+        } else {
+            $providerStatus[$provider] = 'ok';
+        }
+        if ($providerStatus[$provider] !== 'ok') {
+            $complete = false;
         }
     }
 
-    foreach ($providers as $provider) {
-        foreach ($phases as $phase) {
-            if (($seen[(string)$provider][(string)$phase] ?? false) !== true) {
-                return false;
-            }
-        }
-    }
-    return true;
+    return [
+        'complete_provider_coverage' => $complete,
+        'provider_status' => $providerStatus,
+        'provider_phase_status' => $providerPhaseStatus,
+    ];
+}
+
+function svais_cycle_complete_for_consensus(array $transcript, array $providers, array $phases): bool
+{
+    return svais_cycle_coverage($transcript, $providers, $phases)['complete_provider_coverage'] === true;
 }
 
 function svais_provider_state(array $profile): array

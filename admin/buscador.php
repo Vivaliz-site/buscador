@@ -268,6 +268,8 @@ function handleEvent(e){
     document.getElementById('cycle').textContent=e.cycle_id||'—';
     document.getElementById('messages').textContent='0';
     document.getElementById('duration').textContent='—';
+    document.getElementById('feed').dataset.completeProviderCoverage='';
+    document.getElementById('feed').dataset.consensusAvailable='';
   }else if(e.type==='phase_started'){
     addPhase(e.phase);
   }else if(e.type==='agent_started'){
@@ -286,6 +288,19 @@ function handleEvent(e){
   }else if(e.type==='cycle_finished'){
     document.getElementById('duration').textContent=fmtMs(e.duration_ms);
     document.getElementById('phase').textContent='Concluído';
+    const feed=document.getElementById('feed');
+    feed.dataset.completeProviderCoverage=String(e.complete_provider_coverage===true);
+    feed.dataset.consensusAvailable=String(e.consensus_available===true);
+    for(const [provider,status] of Object.entries(e.provider_status||{})){
+      if(status==='ok')continue;
+      const failed=Object.entries(e.provider_phase_status?.[provider]||{})
+        .filter(([,detail])=>detail?.status!=='ok')
+        .map(([phase,detail])=>phaseName(phase)+' ('+String(detail?.failure_class||detail?.status||'falha')+')');
+      setProviderHealth(provider,'unavailable','Cobertura incompleta: '+failed.join(', '));
+    }
+    if(e.complete_provider_coverage!==true){
+      document.getElementById('consensus').textContent='Cobertura incompleta: consenso não emitido.';
+    }
   }
 }
 
