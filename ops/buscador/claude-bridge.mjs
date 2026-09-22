@@ -335,6 +335,23 @@ function sendJson(res, status, payload) {
   res.end(body);
 }
 
+function beginHeartbeat(res) {
+  res.writeHead(200, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Accel-Buffering': 'no',
+  });
+  res.write('\n');
+  const timer = setInterval(() => {
+    if (!res.destroyed && !res.writableEnded) res.write('\n');
+  }, 15000);
+  timer.unref?.();
+  return (payload) => {
+    clearInterval(timer);
+    if (!res.writableEnded) res.end(JSON.stringify(payload));
+  };
+}
+
 async function handle(req, res) {
   if (req.method === 'GET' && req.url === '/health') {
     const auth = claudeAuthSource();
@@ -373,8 +390,16 @@ async function handle(req, res) {
   try {
     const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     const request = validateRequest(parsed);
-    const response = await answer(request);
-    sendJson(res, 200, response);
+    const finish = beginHeartbeat(res);
+    try {
+      const response = await answer(request);
+      finish(response);
+    } catch (error) {
+      const safe = sanitizeBridgeError(error?.message || error);
+      const errorClass = classifyClaudeError(safe);
+      if (errorClass === 'auth') authState = { checked_at: Date.now(), authenticated: false };
+      finish({ ok: false, error_class: errorClass });
+    }
   } catch (error) {
     const safe = sanitizeBridgeError(error?.message || error);
     const errorClass = classifyClaudeError(safe);
