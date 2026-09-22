@@ -49,6 +49,7 @@ function svais_failure_class(Throwable $e): string
 {
     $message = strtolower($e->getMessage());
     if (str_contains($message, 'model_mismatch')) return 'model';
+    if (str_contains($message, 'source_missing')) return 'source_missing';
     if (str_contains($message, 'timeout')) return 'timeout';
     if (str_contains($message, 'not_configured')) return 'not_configured';
     if (str_contains($message, 'quota')
@@ -99,7 +100,7 @@ function svais_profile_catalog(): array
                 'web_search_max_uses' => 10,
             ],
             'gemini' => [
-                'model' => getenv('BUSCADOR_GEMINI_MODEL') ?: 'gemini-3.5-flash',
+                'model' => getenv('BUSCADOR_GEMINI_MODEL') ?: 'gemini-2.5-flash',
                 'thinking_level' => 'MEDIUM',
                 'max_output_tokens' => 7000,
             ],
@@ -120,7 +121,7 @@ function svais_profile_catalog(): array
                 'web_search_max_uses' => 6,
             ],
             'gemini' => [
-                'model' => getenv('BUSCADOR_GEMINI_BALANCED_MODEL') ?: 'gemini-3.5-flash',
+                'model' => getenv('BUSCADOR_GEMINI_BALANCED_MODEL') ?: 'gemini-2.5-flash',
                 'thinking_level' => 'MEDIUM',
                 'max_output_tokens' => 4500,
             ],
