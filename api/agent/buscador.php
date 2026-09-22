@@ -186,6 +186,9 @@ if (!in_array($mode, ['parallel', 'debate', 'research'], true)) {
 }
 
 $stream = ($body['stream'] ?? true) !== false;
+if (!defined('SVAIS_STREAM_HEARTBEAT')) {
+    define('SVAIS_STREAM_HEARTBEAT', $stream);
+}
 if ($stream) {
     header('Content-Type: application/x-ndjson; charset=utf-8');
     header('X-Accel-Buffering: no');
