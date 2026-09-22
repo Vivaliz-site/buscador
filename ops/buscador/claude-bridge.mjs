@@ -50,6 +50,7 @@ export function sanitizeBridgeError(value) {
 
 export function classifyClaudeError(value) {
   const text = String(value || '').toLowerCase();
+  if (text.includes('source_missing')) return 'source_missing';
   if (text.includes('oauth') || text.includes('authenticate') || text.includes('authentication') || text.includes('token expired')) return 'auth';
   if (text.includes('quota') || text.includes('usage limit') || text.includes('session limit') || text.includes('rate limit') || text.includes('credit balance')) return 'quota';
   if (text.includes('timed out') || text.includes('timeout')) return 'timeout';
@@ -297,32 +298,53 @@ export function parseClaudeOutput(stdout) {
   };
 }
 
-async function answer(request) {
-  const auth = claudeAuthSource();
+export function buildSourceRetryPrompt(prompt) {
+  return `${String(prompt || '')}\n\nRETENTATIVA OBRIGATÓRIA DE PESQUISA WEB: use a ferramenta WebSearch antes de responder e inclua pelo menos uma URL completa e verificável (http:// ou https://) das fontes efetivamente consultadas na resposta final. Não invente URLs; se não conseguir obter uma fonte verificável, declare a limitação.`;
+}
+
+export async function answerClaudeRequest(request, options = {}) {
+  const auth = options.auth || claudeAuthSource();
   if (!auth.configured) throw new Error('missing token');
 
-  const timeoutMs = Math.max(30000, Math.min(300000, Number(process.env.BUSCADOR_CLAUDE_REQUEST_TIMEOUT_MS || DEFAULT_TIMEOUT_MS)));
-  const result = await runClaude(buildClaudeArgs(request), request.prompt, timeoutMs, auth.token);
-  if (result.code !== 0) {
-    const detail = claudeFailureDetail(result);
-    throw new Error(detail || 'claude_transport_error');
-  }
-  const data = parseClaudeOutput(result.stdout);
-  if (data.is_error === true) {
-    throw new Error(sanitizeBridgeError(data.error || data.result || 'claude_error'));
-  }
-  const text = data.result;
-  if (!text) throw new Error('empty_response');
+  const timeoutMs = options.timeoutMs ?? Math.max(30000, Math.min(300000, Number(process.env.BUSCADOR_CLAUDE_REQUEST_TIMEOUT_MS || DEFAULT_TIMEOUT_MS)));
+  const run = options.run || runClaude;
+  const attempts = request.web_search ? 2 : 1;
 
-  authState = { checked_at: Date.now(), authenticated: true };
-  return {
-    ok: true,
-    text,
-    model: request.model,
-    transport: 'claude_code',
-    sources: data.sources,
-    usage: data.usage,
-  };
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const prompt = attempt === 0 ? request.prompt : buildSourceRetryPrompt(request.prompt);
+    const result = await run(buildClaudeArgs(request), prompt, timeoutMs, auth.token);
+    if (result.code !== 0) {
+      const detail = claudeFailureDetail(result);
+      throw new Error(detail || 'claude_transport_error');
+    }
+    const data = parseClaudeOutput(result.stdout);
+    if (data.is_error === true) {
+      throw new Error(sanitizeBridgeError(data.error || data.result || 'claude_error'));
+    }
+    const text = data.result;
+    if (!text) throw new Error('empty_response');
+
+    if (request.web_search && data.sources.length === 0) {
+      if (attempt === 0) continue;
+      throw new Error('source_missing');
+    }
+
+    authState = { checked_at: Date.now(), authenticated: true };
+    return {
+      ok: true,
+      text,
+      model: request.model,
+      transport: 'claude_code',
+      sources: data.sources,
+      usage: data.usage,
+    };
+  }
+
+  throw new Error('source_missing');
+}
+
+async function answer(request) {
+  return answerClaudeRequest(request);
 }
 
 function sendJson(res, status, payload) {

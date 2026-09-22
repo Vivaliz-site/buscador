@@ -12,6 +12,8 @@ import {
   isDirectInvocation,
   resolveClaudeAuthSource,
   parseClaudeOutput,
+  buildSourceRetryPrompt,
+  answerClaudeRequest,
 } from '../ops/buscador/claude-bridge.mjs';
 
 const valid = validateRequest({
@@ -55,6 +57,7 @@ assert.equal(classifyClaudeError('OAuth session expired'), 'auth');
 assert.equal(classifyClaudeError('credit balance is too low'), 'quota');
 assert.equal(classifyClaudeError("You've hit your session limit · resets 12:30am (UTC)"), 'quota');
 assert.equal(classifyClaudeError('request_timeout'), 'timeout');
+assert.equal(classifyClaudeError('source_missing'), 'source_missing');
 
 const sessionLimitDetail = claudeFailureDetail({
   code: 1,
@@ -83,6 +86,37 @@ const parsedLegacy = parseClaudeOutput(JSON.stringify({
   usage: { output_tokens: 4 },
 }));
 assert.deepEqual(parsedLegacy.sources, ['https://example.org/legacy']);
+
+assert.match(buildSourceRetryPrompt('pesquise'), /WebSearch/);
+assert.match(buildSourceRetryPrompt('pesquise'), /https?:\/\//);
+const sourceRetryCalls = [];
+const sourceRetryResult = await answerClaudeRequest(valid, {
+  auth: { configured: true, token: '' },
+  run: async (callArgs, prompt) => {
+    sourceRetryCalls.push({ callArgs, prompt });
+    const result = sourceRetryCalls.length === 1
+      ? 'Resposta sem URL verificável.'
+      : 'Fonte verificada: https://example.com/fonte';
+    return { code: 0, stdout: JSON.stringify({ type: 'result', is_error: false, result }), stderr: '' };
+  },
+});
+assert.equal(sourceRetryCalls.length, 2, 'source-less web response must be retried once');
+assert(sourceRetryCalls.every(({ callArgs }) => callArgs.includes('WebSearch,WebFetch')));
+assert.match(sourceRetryCalls[1].prompt, /RETENTATIVA OBRIGATÓRIA DE PESQUISA WEB/);
+assert.deepEqual(sourceRetryResult.sources, ['https://example.com/fonte']);
+
+let sourceMissingCalls = 0;
+await assert.rejects(
+  () => answerClaudeRequest(valid, {
+    auth: { configured: true, token: '' },
+    run: async () => {
+      sourceMissingCalls += 1;
+      return { code: 0, stdout: JSON.stringify({ type: 'result', is_error: false, result: 'Ainda sem URL.' }), stderr: '' };
+    },
+  }),
+  /source_missing/
+);
+assert.equal(sourceMissingCalls, 2, 'source-less web response must fail after the single retry');
 
 const safe = sanitizeBridgeError('Authorization: Bearer sk-ant-oat-secret user@example.com');
 assert(!safe.includes('sk-ant-oat-secret'));
