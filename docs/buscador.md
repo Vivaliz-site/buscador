@@ -74,11 +74,11 @@ Para Claude Code, o bridge reutiliza preferencialmente o login persistente Claud
 
 Overrides opcionais:
 
-- `AI_SQUAD_OPENAI_MODEL`
-- `AI_SQUAD_ANTHROPIC_MODEL`
-- `AI_SQUAD_GEMINI_MODEL`
+- `BUSCADOR_OPENAI_MODEL`
+- `BUSCADOR_ANTHROPIC_MODEL`
+- `BUSCADOR_GEMINI_MODEL`
 - equivalentes `*_BALANCED_MODEL` e `*_FAST_MODEL`;
-- `AI_SQUAD_CODEX_WEB_SEARCH_MODE` — modo de pesquisa web do bridge Codex (`live`, `cached` ou `disabled` conforme política de runtime).
+- `BUSCADOR_CODEX_WEB_SEARCH_MODE` — modo de pesquisa web do bridge Codex (`live`, `cached` ou `disabled` conforme política de runtime).
 
 ## Health
 
