@@ -29,6 +29,54 @@ function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+export function createRunGuard({
+  maxConcurrent = 1,
+  failureThreshold = 3,
+  cooldownMs = 60_000,
+  now = () => Date.now(),
+} = {}) {
+  let inFlight = 0;
+  let consecutiveFailures = 0;
+  let openUntil = 0;
+  const opensCircuit = new Set([
+    'upstream_error',
+    'upstream_unreachable',
+    'upstream_timeout',
+    'upstream_rate_limited',
+  ]);
+
+  return {
+    async execute(fn) {
+      if (openUntil > now()) {
+        throw new BuscadorMcpError('upstream_circuit_open', 'upstream_circuit_open');
+      }
+      if (inFlight >= maxConcurrent) {
+        throw new BuscadorMcpError('run_busy', 'run_already_in_progress');
+      }
+
+      inFlight += 1;
+      try {
+        const result = await fn();
+        consecutiveFailures = 0;
+        openUntil = 0;
+        return result;
+      } catch (error) {
+        if (opensCircuit.has(error?.errorClass)) {
+          consecutiveFailures += 1;
+          if (consecutiveFailures >= failureThreshold) {
+            openUntil = now() + cooldownMs;
+          }
+        }
+        throw error;
+      } finally {
+        inFlight -= 1;
+      }
+    },
+  };
+}
+
+const defaultRunGuard = createRunGuard();
+
 export function redactSecrets(value, secrets = []) {
   let text = String(value ?? '');
   for (const secret of secrets) {
@@ -266,6 +314,7 @@ export function createBuscadorMcpServer({
   keyProvider = defaultKeyProvider,
   logger = (entry) => console.error(JSON.stringify(entry)),
   now = () => Date.now(),
+  runGuard = defaultRunGuard,
 } = {}) {
   const server = new McpServer(
     { name: 'shopvivaliz-buscador', version: '0.1.0' },
@@ -349,7 +398,7 @@ export function createBuscadorMcpServer({
         const input = validateRunInput(args);
         if (!key) throw new BuscadorMcpError('auth_error', 'BUSCADOR_MCP_KEY_not_configured');
 
-        const { payload, httpStatus } = await requestJson({
+        const { payload, httpStatus } = await runGuard.execute(() => requestJson({
           fetchImpl,
           url: BUSCADOR_UPSTREAM_URL,
           init: {
@@ -363,7 +412,7 @@ export function createBuscadorMcpServer({
           },
           timeoutMs: parseTimeout(),
           secrets: [key],
-        });
+        }));
         const result = normalizeRun(payload, input.mode);
         logger({
           tool: 'runBuscador',
