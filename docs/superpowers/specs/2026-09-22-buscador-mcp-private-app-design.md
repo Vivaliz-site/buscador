@@ -1,7 +1,7 @@
 # Gepeto Plugin + Buscador MCP privado
 
-Data: 2026-09-22  
-Status: MCP implementado e testado; rollout privado, Secure MCP Tunnel e package do Plugin ainda pendentes  
+Data: 2026-09-22
+Status: MCP implementado e testado; rollout privado, Secure MCP Tunnel e package do Plugin ainda pendentes
 Repositório desta especificação: `Vivaliz-site/buscador`
 
 ## 1. Objetivo
