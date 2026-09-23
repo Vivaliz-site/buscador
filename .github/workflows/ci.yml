@@ -28,6 +28,6 @@ jobs:
       - name: Node bridge tests
         run: for f in tests/*.mjs; do node "$f"; done
       - name: Buscador MCP install
-        run: npm install --ignore-scripts --no-audit --no-fund --prefix ops/buscador-mcp
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefix ops/buscador-mcp
       - name: Buscador MCP tests
         run: npm test --prefix ops/buscador-mcp
