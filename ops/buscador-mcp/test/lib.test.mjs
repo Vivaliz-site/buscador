@@ -16,6 +16,17 @@ const verifiedProviders = {
   gemini: { health: 'verified', configured: true },
 };
 
+const fullResearchPhases = Object.fromEntries(
+  ['openai', 'anthropic', 'gemini'].map((provider) => [
+    provider,
+    {
+      research: { status: 'ok' },
+      critique: { status: 'ok' },
+      converge: { status: 'ok' },
+    },
+  ]),
+);
+
 test('upstream URL is fixed and HTTPS', () => {
   assert.equal(BUSCADOR_UPSTREAM_URL, 'https://shopvivaliz.com.br/api/agent/buscador.php');
 });
@@ -84,6 +95,71 @@ test('run is complete only with all providers, consensus and successful cycle_fi
   });
   assert.equal(partial.complete_consensus, false);
   assert.equal(partial.consensus_present, false);
+});
+
+test('research consensus fails closed when a required phase is not ok', () => {
+  const broken = structuredClone(fullResearchPhases);
+  broken.gemini.converge = { status: 'error', failure_class: 'timeout' };
+
+  const result = normalizeRun({
+    ok: true,
+    endpoint: 'buscador',
+    events: [
+      { type: 'agent_message', provider: 'openai', phase: 'research', ok: true, text: 'a' },
+      { type: 'agent_message', provider: 'anthropic', phase: 'research', ok: true, text: 'b' },
+      { type: 'agent_message', provider: 'gemini', phase: 'research', ok: true, text: 'c' },
+      { type: 'consensus', ok: true, text: 'should not be trusted' },
+      {
+        type: 'cycle_finished',
+        ok: true,
+        provider_status: { openai: 'ok', anthropic: 'ok', gemini: 'ok' },
+        provider_phase_status: broken,
+        complete_provider_coverage: true,
+        consensus_available: true,
+      },
+    ],
+  }, 'research');
+
+  assert.equal(result.phase_coverage_ok, false);
+  assert.equal(result.complete_consensus, false);
+});
+
+test('parallel mode requires only the research phase', () => {
+  const phases = Object.fromEntries(
+    ['openai', 'anthropic', 'gemini'].map((provider) => [
+      provider,
+      { research: { status: 'ok' } },
+    ]),
+  );
+
+  const result = normalizeRun({
+    ok: true,
+    endpoint: 'buscador',
+    events: [
+      { type: 'agent_message', provider: 'openai', phase: 'research', ok: true, text: 'a' },
+      { type: 'agent_message', provider: 'anthropic', phase: 'research', ok: true, text: 'b' },
+      { type: 'agent_message', provider: 'gemini', phase: 'research', ok: true, text: 'c' },
+      { type: 'consensus', ok: true, text: 'ok' },
+      {
+        type: 'cycle_finished',
+        ok: true,
+        provider_status: { openai: 'ok', anthropic: 'ok', gemini: 'ok' },
+        provider_phase_status: phases,
+        complete_provider_coverage: true,
+        consensus_available: true,
+      },
+    ],
+  }, 'parallel');
+
+  assert.equal(result.phase_coverage_ok, true);
+  assert.equal(result.complete_consensus, true);
+});
+
+test('validation failures carry invalid_input error class', () => {
+  assert.throws(
+    () => validateRunInput({ message: '', profile: 'fast', mode: 'parallel' }),
+    (error) => error?.errorClass === 'invalid_input' && /invalid_message/.test(error.message),
+  );
 });
 
 test('run input is strict and never accepts an upstream URL', () => {
