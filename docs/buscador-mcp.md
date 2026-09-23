@@ -33,6 +33,16 @@ O instalador cria release imutável em `~/.local/share/shopvivaliz-buscador-mcp/
 
 ## Validação local
 
+`/healthz` prova somente que o processo MCP local está escutando. Ele nunca certifica health de providers nem consenso. Health real dos providers é comprovado somente pela tool MCP `getBuscadorHealth`.
+
+Pré-requisito de persistência do serviço de usuário:
+
+```bash
+loginctl show-user ubuntu -p Linger --value
+```
+
+O valor esperado é `yes`. Sem `Linger=yes`, o instalador falha fechado.
+
 ```bash
 curl -fsS http://127.0.0.1:8787/healthz
 curl -sS -X POST http://127.0.0.1:8787/mcp \
