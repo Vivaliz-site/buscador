@@ -68,6 +68,7 @@ test('run is complete only with all providers, consensus and successful cycle_fi
         type: 'cycle_finished',
         ok: true,
         provider_status: { openai: 'ok', anthropic: 'ok', gemini: 'ok' },
+        provider_phase_status: fullResearchPhases,
         complete_provider_coverage: true,
         consensus_available: true,
         message_count: 3,
