@@ -18,7 +18,7 @@ jobs:
           coverage: none
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
       - name: PHP lint
         run: find . -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: PHP tests
@@ -27,3 +27,7 @@ jobs:
         run: for f in tests/*.sh; do bash "$f"; done
       - name: Node bridge tests
         run: for f in tests/*.mjs; do node "$f"; done
+      - name: Buscador MCP install
+        run: npm install --ignore-scripts --no-audit --no-fund --prefix ops/buscador-mcp
+      - name: Buscador MCP tests
+        run: npm test --prefix ops/buscador-mcp
