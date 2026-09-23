@@ -13,7 +13,7 @@ Este repositorio separa o motor de pesquisa/debate do site principal para evitar
 - UI canonica: /admin/buscador.php
 - Perfil principal: deep_research
 - Fable: proibido
-- Health valido: ok=true, endpoint=buscador e providers presente
+- Health estrutural: ok=true, endpoint=buscador e providers presente\n- Health verificado: OpenAI, Anthropic e Gemini com health=verified\n- Consenso completo: tres providers + consensus + cycle_finished + cobertura completa
 
 ## Compatibilidade
 
