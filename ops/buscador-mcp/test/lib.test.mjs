@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as BuscadorMcp from '../lib.mjs';
 
 import {
   BUSCADOR_UPSTREAM_URL,
@@ -188,4 +189,59 @@ test('secret redaction never returns known secret values', () => {
   const redacted = redactSecrets(`authorization failed for ${secret}`, [secret]);
   assert.equal(redacted.includes(secret), false);
   assert.match(redacted, /\[REDACTED\]/);
+});
+
+test('run guard rejects overlapping execution', async () => {
+  assert.equal(typeof BuscadorMcp.createRunGuard, 'function');
+  const guard = BuscadorMcp.createRunGuard();
+  let release;
+  const first = guard.execute(() => new Promise((resolve) => {
+    release = resolve;
+  }));
+  await Promise.resolve();
+
+  await assert.rejects(
+    () => guard.execute(async () => 'second'),
+    (error) => error?.errorClass === 'run_busy' && error.message === 'run_already_in_progress',
+  );
+
+  release('first');
+  assert.equal(await first, 'first');
+});
+
+test('run guard opens and later closes circuit after consecutive upstream failures', async () => {
+  assert.equal(typeof BuscadorMcp.createRunGuard, 'function');
+  let clock = 1000;
+  let calls = 0;
+  const guard = BuscadorMcp.createRunGuard({
+    failureThreshold: 3,
+    cooldownMs: 5000,
+    now: () => clock,
+  });
+
+  const fail = () => guard.execute(async () => {
+    calls += 1;
+    throw new BuscadorMcp.BuscadorMcpError('upstream_error', 'boom');
+  });
+
+  await assert.rejects(fail, /boom/);
+  await assert.rejects(fail, /boom/);
+  await assert.rejects(fail, /boom/);
+  assert.equal(calls, 3);
+
+  await assert.rejects(
+    () => guard.execute(async () => {
+      calls += 1;
+      return 'unexpected';
+    }),
+    (error) => error?.errorClass === 'upstream_circuit_open',
+  );
+  assert.equal(calls, 3);
+
+  clock += 5001;
+  assert.equal(await guard.execute(async () => {
+    calls += 1;
+    return 'recovered';
+  }), 'recovered');
+  assert.equal(calls, 4);
 });
