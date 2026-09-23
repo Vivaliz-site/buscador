@@ -87,7 +87,11 @@ test('runBuscador forces stream=false and auth stays server-side', async () => {
           type: 'cycle_finished',
           ok: true,
           provider_status: { openai: 'ok', anthropic: 'ok', gemini: 'ok' },
-          provider_phase_status: {},
+          provider_phase_status: {
+            openai: { research: { status: 'ok' } },
+            anthropic: { research: { status: 'ok' } },
+            gemini: { research: { status: 'ok' } },
+          },
           complete_provider_coverage: true,
           consensus_available: true,
           message_count: 3,
