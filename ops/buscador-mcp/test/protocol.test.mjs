@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createMcpHandler } from '@modelcontextprotocol/server';
-import { createBuscadorMcpServer } from '../lib.mjs';
+import { createBuscadorMcpServer, createRunGuard } from '../lib.mjs';
 
 function parseMcpResponse(text) {
   const dataLine = text.split('\n').find((line) => line.startsWith('data: '));
@@ -10,12 +10,17 @@ function parseMcpResponse(text) {
   return JSON.parse(raw);
 }
 
-function makeHandler(fetchImpl) {
+function makeHandler(fetchImpl, {
+  key = 'test-key-never-log',
+  logger = () => {},
+} = {}) {
+  const runGuard = createRunGuard();
   return createMcpHandler(
     () => createBuscadorMcpServer({
       fetchImpl,
-      keyProvider: () => 'test-key-never-log',
-      logger: () => {},
+      keyProvider: () => key,
+      logger,
+      runGuard,
     }),
     { legacy: 'stateless' },
   );
@@ -87,7 +92,11 @@ test('runBuscador forces stream=false and auth stays server-side', async () => {
           type: 'cycle_finished',
           ok: true,
           provider_status: { openai: 'ok', anthropic: 'ok', gemini: 'ok' },
-          provider_phase_status: {},
+          provider_phase_status: {
+            openai: { research: { status: 'ok' } },
+            anthropic: { research: { status: 'ok' } },
+            gemini: { research: { status: 'ok' } },
+          },
           complete_provider_coverage: true,
           consensus_available: true,
           message_count: 3,
@@ -106,4 +115,110 @@ test('runBuscador forces stream=false and auth stays server-side', async () => {
   assert.equal(body.result.structuredContent.complete_consensus, true);
   assert.equal(JSON.stringify(body).includes('test-key-never-log'), false);
   await handler.close();
+});
+
+test('runBuscador classifies upstream HTTP failures without leaking auth', async () => {
+  for (const [status, expectedClass] of [
+    [401, 'auth_error'],
+    [429, 'upstream_rate_limited'],
+    [500, 'upstream_error'],
+  ]) {
+    const key = `secret-${status}-never-log`;
+    const logs = [];
+    const handler = makeHandler(async () => new Response(
+      JSON.stringify({ ok: false, error: `status-${status}` }),
+      { status, headers: { 'Content-Type': 'application/json' } },
+    ), {
+      key,
+      logger: (entry) => logs.push(entry),
+    });
+
+    const body = await rpc(handler, 100 + status, 'tools/call', {
+      name: 'runBuscador',
+      arguments: { message: 'teste', profile: 'fast', mode: 'parallel' },
+    });
+    assert.equal(body.result.isError, true);
+    assert.equal(body.result.structuredContent.error_class, expectedClass);
+    assert.equal(JSON.stringify(body).includes(key), false);
+    assert.equal(JSON.stringify(logs).includes(key), false);
+    await handler.close();
+  }
+});
+
+test('runBuscador classifies network failures and redacts secrets', async () => {
+  const key = 'network-secret-never-log';
+  const logs = [];
+  const handler = makeHandler(async () => {
+    throw new Error(`connect failed with ${key}`);
+  }, {
+    key,
+    logger: (entry) => logs.push(entry),
+  });
+
+  const body = await rpc(handler, 200, 'tools/call', {
+    name: 'runBuscador',
+    arguments: { message: 'teste', profile: 'fast', mode: 'parallel' },
+  });
+  assert.equal(body.result.structuredContent.error_class, 'upstream_unreachable');
+  assert.match(body.result.structuredContent.error, /\[REDACTED\]/);
+  assert.equal(JSON.stringify(body).includes(key), false);
+  assert.equal(JSON.stringify(logs).includes(key), false);
+  await handler.close();
+});
+
+test('runBuscador rejects invalid JSON and oversized upstream bodies', async () => {
+  const invalid = makeHandler(async () => new Response(
+    'not-json',
+    { status: 200, headers: { 'Content-Type': 'application/json' } },
+  ));
+  const invalidBody = await rpc(invalid, 201, 'tools/call', {
+    name: 'runBuscador',
+    arguments: { message: 'teste', profile: 'fast', mode: 'parallel' },
+  });
+  assert.equal(invalidBody.result.structuredContent.error_class, 'invalid_response');
+  assert.equal(invalidBody.result.structuredContent.error, 'upstream_invalid_json');
+  await invalid.close();
+
+  const oversized = makeHandler(async () => new Response('x'.repeat(2_000_001), { status: 200 }));
+  const oversizedBody = await rpc(oversized, 202, 'tools/call', {
+    name: 'runBuscador',
+    arguments: { message: 'teste', profile: 'fast', mode: 'parallel' },
+  });
+  assert.equal(oversizedBody.result.structuredContent.error_class, 'invalid_response');
+  assert.equal(oversizedBody.result.structuredContent.error, 'upstream_response_too_large');
+  await oversized.close();
+});
+
+test('runBuscador sets redirect=error on the fixed upstream request', async () => {
+  let seenRedirect = null;
+  const handler = makeHandler(async (_url, init) => {
+    seenRedirect = init.redirect;
+    throw new Error('stop-after-capture');
+  });
+  await rpc(handler, 203, 'tools/call', {
+    name: 'runBuscador',
+    arguments: { message: 'teste', profile: 'fast', mode: 'parallel' },
+  });
+  assert.equal(seenRedirect, 'error');
+  await handler.close();
+});
+
+test('runBuscador reports an upstream timeout', async () => {
+  const previous = process.env.BUSCADOR_MCP_UPSTREAM_TIMEOUT_MS;
+  process.env.BUSCADOR_MCP_UPSTREAM_TIMEOUT_MS = '5000';
+  const handler = makeHandler(async (_url, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener('abort', () => reject(new Error('aborted-by-test')), { once: true });
+  }));
+
+  try {
+    const body = await rpc(handler, 204, 'tools/call', {
+      name: 'runBuscador',
+      arguments: { message: 'teste', profile: 'fast', mode: 'parallel' },
+    });
+    assert.equal(body.result.structuredContent.error_class, 'upstream_timeout');
+  } finally {
+    if (previous === undefined) delete process.env.BUSCADOR_MCP_UPSTREAM_TIMEOUT_MS;
+    else process.env.BUSCADOR_MCP_UPSTREAM_TIMEOUT_MS = previous;
+    await handler.close();
+  }
 });

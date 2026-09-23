@@ -18,9 +18,16 @@ release="$releases/$release_id"
 
 test -n "$node_bin"
 test -f "$source_dir/package.json"
+test -f "$source_dir/package-lock.json"
 test -f "$source_dir/server.mjs"
 test -f "$source_dir/lib.mjs"
 test -f "$env_path"
+
+linger="$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || true)"
+if [[ "$linger" != "yes" ]]; then
+  echo "BUSCADOR_MCP_INSTALL_ERROR=linger_required" >&2
+  exit 69
+fi
 grep -Eq '^BUSCADOR_MCP_KEY=.+' "$env_path"
 
 mkdir -p "$service_dir" "$releases" "$env_dir"
@@ -29,12 +36,13 @@ chmod 600 "$env_path"
 
 mkdir "$release"
 install -m 600 "$source_dir/package.json" "$release/package.json"
+install -m 600 "$source_dir/package-lock.json" "$release/package-lock.json"
 install -m 600 "$source_dir/server.mjs" "$release/server.mjs"
 install -m 600 "$source_dir/lib.mjs" "$release/lib.mjs"
 
 (
   cd "$release"
-  npm install --omit=dev --ignore-scripts --no-audit --no-fund
+  npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 )
 
 ln -s "$release" "$runtime/current.new"

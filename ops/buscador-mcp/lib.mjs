@@ -5,6 +5,11 @@ export const BUSCADOR_UPSTREAM_URL = 'https://shopvivaliz.com.br/api/agent/busca
 export const BUSCADOR_PROFILES = ['deep_research', 'balanced', 'fast'];
 export const BUSCADOR_MODES = ['parallel', 'debate', 'research'];
 export const BUSCADOR_PROVIDERS = ['openai', 'anthropic', 'gemini'];
+export const BUSCADOR_PHASES_BY_MODE = Object.freeze({
+  parallel: ['research'],
+  debate: ['research', 'critique'],
+  research: ['research', 'critique', 'converge'],
+});
 
 const DEFAULT_TIMEOUT_MS = 840_000;
 const HEALTH_TIMEOUT_MS = 35_000;
@@ -23,6 +28,54 @@ export class BuscadorMcpError extends Error {
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
+
+export function createRunGuard({
+  maxConcurrent = 1,
+  failureThreshold = 3,
+  cooldownMs = 60_000,
+  now = () => Date.now(),
+} = {}) {
+  let inFlight = 0;
+  let consecutiveFailures = 0;
+  let openUntil = 0;
+  const opensCircuit = new Set([
+    'upstream_error',
+    'upstream_unreachable',
+    'upstream_timeout',
+    'upstream_rate_limited',
+  ]);
+
+  return {
+    async execute(fn) {
+      if (openUntil > now()) {
+        throw new BuscadorMcpError('upstream_circuit_open', 'upstream_circuit_open');
+      }
+      if (inFlight >= maxConcurrent) {
+        throw new BuscadorMcpError('run_busy', 'run_already_in_progress');
+      }
+
+      inFlight += 1;
+      try {
+        const result = await fn();
+        consecutiveFailures = 0;
+        openUntil = 0;
+        return result;
+      } catch (error) {
+        if (opensCircuit.has(error?.errorClass)) {
+          consecutiveFailures += 1;
+          if (consecutiveFailures >= failureThreshold) {
+            openUntil = now() + cooldownMs;
+          }
+        }
+        throw error;
+      } finally {
+        inFlight -= 1;
+      }
+    },
+  };
+}
+
+const defaultRunGuard = createRunGuard();
 
 export function redactSecrets(value, secrets = []) {
   let text = String(value ?? '');
@@ -43,21 +96,25 @@ export function classifyHttpError(status) {
   return 'upstream_error';
 }
 
+function invalidInput(reason) {
+  return new BuscadorMcpError('invalid_input', reason);
+}
+
 export function validateRunInput(input) {
-  if (!isObject(input)) throw new Error('invalid_input');
+  if (!isObject(input)) throw invalidInput('invalid_input');
   const allowed = new Set(['message', 'profile', 'mode']);
   for (const key of Object.keys(input)) {
-    if (!allowed.has(key)) throw new Error('unknown_field');
+    if (!allowed.has(key)) throw invalidInput('unknown_field');
   }
 
   const message = typeof input.message === 'string' ? input.message.trim() : '';
-  if (!message || [...message].length > MAX_MESSAGE_CHARS) throw new Error('invalid_message');
+  if (!message || [...message].length > MAX_MESSAGE_CHARS) throw invalidInput('invalid_message');
 
   const profile = input.profile ?? 'deep_research';
-  if (!BUSCADOR_PROFILES.includes(profile)) throw new Error('invalid_profile');
+  if (!BUSCADOR_PROFILES.includes(profile)) throw invalidInput('invalid_profile');
 
   const mode = input.mode ?? 'research';
-  if (!BUSCADOR_MODES.includes(mode)) throw new Error('invalid_mode');
+  if (!BUSCADOR_MODES.includes(mode)) throw invalidInput('invalid_mode');
 
   return { message, profile, mode };
 }
@@ -114,7 +171,14 @@ function publicEvent(event) {
   return out;
 }
 
-export function normalizeRun(payload) {
+function hasCompletePhaseCoverage(providerPhaseStatus, mode) {
+  const phases = BUSCADOR_PHASES_BY_MODE[mode] ?? [];
+  return BUSCADOR_PROVIDERS.every((provider) =>
+    phases.every((phase) => providerPhaseStatus?.[provider]?.[phase]?.status === 'ok'),
+  );
+}
+
+export function normalizeRun(payload, mode = 'research') {
   const events = Array.isArray(payload?.events) ? payload.events : [];
   const agentMessages = events.filter(
     (event) => event?.type === 'agent_message' && event?.ok === true && BUSCADOR_PROVIDERS.includes(event?.provider),
@@ -123,13 +187,17 @@ export function normalizeRun(payload) {
   const consensus = [...events].reverse().find((event) => event?.type === 'consensus' && event?.ok === true) ?? null;
   const finished = [...events].reverse().find((event) => event?.type === 'cycle_finished') ?? null;
   const providerStatus = isObject(finished?.provider_status) ? finished.provider_status : {};
+  const providerPhaseStatus = isObject(finished?.provider_phase_status) ? finished.provider_phase_status : {};
   const providerStatusOk = BUSCADOR_PROVIDERS.every((provider) => providerStatus[provider] === 'ok');
   const allProvidersObserved = BUSCADOR_PROVIDERS.every((provider) => providersObserved.includes(provider));
+  const requiredPhases = BUSCADOR_PHASES_BY_MODE[mode] ?? [];
+  const phaseCoverageOk = hasCompletePhaseCoverage(providerPhaseStatus, mode);
 
   const completeConsensus = payload?.ok === true
     && payload?.endpoint === 'buscador'
     && allProvidersObserved
     && providerStatusOk
+    && phaseCoverageOk
     && consensus !== null
     && finished?.ok === true
     && finished?.complete_provider_coverage === true
@@ -141,7 +209,9 @@ export function normalizeRun(payload) {
     cycle_id: payload?.cycle_id ?? null,
     providers_observed: providersObserved,
     provider_status: providerStatus,
-    provider_phase_status: isObject(finished?.provider_phase_status) ? finished.provider_phase_status : {},
+    provider_phase_status: providerPhaseStatus,
+    required_phases: requiredPhases,
+    phase_coverage_ok: phaseCoverageOk,
     message_count: finished?.message_count ?? agentMessages.length,
     complete_provider_coverage: finished?.complete_provider_coverage === true,
     consensus_present: consensus !== null,
@@ -244,6 +314,7 @@ export function createBuscadorMcpServer({
   keyProvider = defaultKeyProvider,
   logger = (entry) => console.error(JSON.stringify(entry)),
   now = () => Date.now(),
+  runGuard = defaultRunGuard,
 } = {}) {
   const server = new McpServer(
     { name: 'shopvivaliz-buscador', version: '0.1.0' },
@@ -327,7 +398,7 @@ export function createBuscadorMcpServer({
         const input = validateRunInput(args);
         if (!key) throw new BuscadorMcpError('auth_error', 'BUSCADOR_MCP_KEY_not_configured');
 
-        const { payload, httpStatus } = await requestJson({
+        const { payload, httpStatus } = await runGuard.execute(() => requestJson({
           fetchImpl,
           url: BUSCADOR_UPSTREAM_URL,
           init: {
@@ -341,8 +412,8 @@ export function createBuscadorMcpServer({
           },
           timeoutMs: parseTimeout(),
           secrets: [key],
-        });
-        const result = normalizeRun(payload);
+        }));
+        const result = normalizeRun(payload, input.mode);
         logger({
           tool: 'runBuscador',
           duration_ms: Math.max(0, now() - started),
