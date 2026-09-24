@@ -75,7 +75,7 @@ test('getBuscadorHealth uses fixed upstream and preserves configured_unverified'
   await handler.close();
 });
 
-test('runBuscador forces stream=false and auth stays server-side', async () => {
+test('runBuscador sends streaming transport/auth request without exposing server key', async () => {
   let captured = null;
   const handler = makeHandler(async (url, init) => {
     captured = { url: String(url), init };
@@ -110,11 +110,158 @@ test('runBuscador forces stream=false and auth stays server-side', async () => {
     arguments: { message: 'teste', profile: 'fast', mode: 'parallel' },
   });
   assert.equal(captured.url, 'https://shopvivaliz.com.br/api/agent/buscador.php');
-  assert.equal(JSON.parse(captured.init.body).stream, false);
+  assert.equal(JSON.parse(captured.init.body).stream, true);
   assert.equal(captured.init.headers.Authorization, 'Bearer test-key-never-log');
-  assert.equal(body.result.structuredContent.complete_consensus, true);
   assert.equal(JSON.stringify(body).includes('test-key-never-log'), false);
   await handler.close();
+});
+
+test('runBuscador parses heartbeat NDJSON into a complete result', async () => {
+  const handler = makeHandler(async (_url, init) => {
+    assert.match(init.headers.Accept, /application\/x-ndjson/);
+    const events = [
+      { type: 'cycle_started', cycle_id: 'cycle-stream', profile: 'fast', mode: 'parallel' },
+      { type: 'agent_message', cycle_id: 'cycle-stream', provider: 'openai', phase: 'research', ok: true, text: 'a', sources: [] },
+      { type: 'agent_message', cycle_id: 'cycle-stream', provider: 'anthropic', phase: 'research', ok: true, text: 'b', sources: [] },
+      { type: 'agent_message', cycle_id: 'cycle-stream', provider: 'gemini', phase: 'research', ok: true, text: 'c', sources: [] },
+      { type: 'consensus', cycle_id: 'cycle-stream', provider: 'openai', ok: true, text: 'done', sources: [] },
+      {
+        type: 'cycle_finished',
+        cycle_id: 'cycle-stream',
+        ok: true,
+        provider_status: { openai: 'ok', anthropic: 'ok', gemini: 'ok' },
+        provider_phase_status: {
+          openai: { research: { status: 'ok' } },
+          anthropic: { research: { status: 'ok' } },
+          gemini: { research: { status: 'ok' } },
+        },
+        complete_provider_coverage: true,
+        consensus_available: true,
+        message_count: 3,
+      },
+    ];
+    const ndjson = '\n' + events.map((event) => JSON.stringify(event)).join('\n\n') + '\n';
+    return new Response(ndjson, { status: 200, headers: { 'Content-Type': 'application/x-ndjson' } });
+  });
+
+  const body = await rpc(handler, 4, 'tools/call', {
+    name: 'runBuscador',
+    arguments: { message: 'teste', profile: 'fast', mode: 'parallel' },
+  });
+  assert.equal(body.result.structuredContent.complete_consensus, true);
+  assert.equal(body.result.structuredContent.cycle_id, 'cycle-stream');
+  assert.equal(body.result.structuredContent.message_count, 3);
+  await handler.close();
+});
+
+test('runBuscador handles JSON split across streaming chunks', async () => {
+  const handler = makeHandler(async () => {
+    const events = [
+      { type: 'cycle_started', cycle_id: 'cycle-split' },
+      { type: 'agent_message', provider: 'openai', phase: 'research', ok: true, text: 'a', sources: [] },
+      { type: 'agent_message', provider: 'anthropic', phase: 'research', ok: true, text: 'b', sources: [] },
+      { type: 'agent_message', provider: 'gemini', phase: 'research', ok: true, text: 'c', sources: [] },
+      { type: 'consensus', provider: 'openai', ok: true, text: 'done', sources: [] },
+      { type: 'cycle_finished', cycle_id: 'cycle-split', ok: true,
+        provider_status: { openai: 'ok', anthropic: 'ok', gemini: 'ok' },
+        provider_phase_status: { openai: { research: { status: 'ok' } }, anthropic: { research: { status: 'ok' } }, gemini: { research: { status: 'ok' } } },
+        complete_provider_coverage: true, consensus_available: true, message_count: 3 },
+    ];
+    const bytes = new TextEncoder().encode(events.map((e) => JSON.stringify(e)).join('\n') + '\n');
+    const stream = new ReadableStream({ start(controller) {
+      for (let i = 0; i < bytes.length; i += 7) controller.enqueue(bytes.slice(i, i + 7));
+      controller.close();
+    }});
+    return new Response(stream, { status: 200, headers: { 'Content-Type': 'application/x-ndjson' } });
+  });
+  const body = await rpc(handler, 5, 'tools/call', {
+    name: 'runBuscador', arguments: { message: 'teste', profile: 'fast', mode: 'parallel' },
+  });
+  assert.equal(body.result.structuredContent.complete_consensus, true);
+  assert.equal(body.result.structuredContent.cycle_id, 'cycle-split');
+  await handler.close();
+});
+
+test('runBuscador cancels malformed streaming body', async () => {
+  let cancelled = false;
+  const handler = makeHandler(async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(
+          '{"type":"cycle_started","cycle_id":"cycle-bad"}\nnot-json\n',
+        ));
+      },
+      cancel() { cancelled = true; },
+    });
+    return new Response(stream, { status: 200, headers: { 'Content-Type': 'application/x-ndjson' } });
+  });
+  const body = await rpc(handler, 6, 'tools/call', {
+    name: 'runBuscador', arguments: { message: 'teste', profile: 'fast', mode: 'parallel' },
+  });
+  assert.equal(body.result.structuredContent.error_class, 'invalid_response');
+  assert.equal(cancelled, true);
+  await handler.close();
+});
+
+test('runBuscador rejects duplicate cycle_finished events', async () => {
+  const handler = makeHandler(async () => {
+    const finished = {
+      type: 'cycle_finished', cycle_id: 'cycle-dup', ok: true,
+      provider_status: { openai: 'ok', anthropic: 'ok', gemini: 'ok' },
+      provider_phase_status: {
+        openai: { research: { status: 'ok' } },
+        anthropic: { research: { status: 'ok' } },
+        gemini: { research: { status: 'ok' } },
+      },
+      complete_provider_coverage: true, consensus_available: true, message_count: 3,
+    };
+    const events = [
+      { type: 'cycle_started', cycle_id: 'cycle-dup' },
+      { type: 'agent_message', provider: 'openai', phase: 'research', ok: true, text: 'a', sources: [] },
+      { type: 'agent_message', provider: 'anthropic', phase: 'research', ok: true, text: 'b', sources: [] },
+      { type: 'agent_message', provider: 'gemini', phase: 'research', ok: true, text: 'c', sources: [] },
+      { type: 'consensus', provider: 'openai', ok: true, text: 'done', sources: [] },
+      finished, finished,
+    ];
+    return new Response(events.map((e) => JSON.stringify(e)).join('\n') + '\n', {
+      status: 200, headers: { 'Content-Type': 'application/x-ndjson' },
+    });
+  });
+  const body = await rpc(handler, 7, 'tools/call', {
+    name: 'runBuscador', arguments: { message: 'teste', profile: 'fast', mode: 'parallel' },
+  });
+  assert.equal(body.result.structuredContent.error_class, 'invalid_response');
+  assert.equal(body.result.structuredContent.error, 'upstream_invalid_cycle');
+  await handler.close();
+});
+
+test('runBuscador classifies timeout while streaming body', async () => {
+  const previous = process.env.BUSCADOR_MCP_UPSTREAM_TIMEOUT_MS;
+  process.env.BUSCADOR_MCP_UPSTREAM_TIMEOUT_MS = '5000';
+  let handler;
+  try {
+    handler = makeHandler(async (_url, init) => {
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(
+            '{"type":"cycle_started","cycle_id":"cycle-timeout"}\n',
+          ));
+          init.signal.addEventListener('abort', () => {
+            controller.error(new DOMException('aborted', 'AbortError'));
+          }, { once: true });
+        },
+      });
+      return new Response(stream, { status: 200, headers: { 'Content-Type': 'application/x-ndjson' } });
+    });
+    const body = await rpc(handler, 8, 'tools/call', {
+      name: 'runBuscador', arguments: { message: 'teste', profile: 'fast', mode: 'parallel' },
+    });
+    assert.equal(body.result.structuredContent.error_class, 'upstream_timeout');
+  } finally {
+    if (previous === undefined) delete process.env.BUSCADOR_MCP_UPSTREAM_TIMEOUT_MS;
+    else process.env.BUSCADOR_MCP_UPSTREAM_TIMEOUT_MS = previous;
+    await handler?.close();
+  }
 });
 
 test('runBuscador classifies upstream HTTP failures without leaking auth', async () => {

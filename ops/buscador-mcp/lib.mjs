@@ -285,6 +285,111 @@ async function requestJson({
   }
 }
 
+
+async function requestNdjson({
+  fetchImpl,
+  url,
+  init,
+  timeoutMs,
+  secrets = [],
+}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    let response;
+    try {
+      response = await fetchImpl(url, { ...init, redirect: 'error', signal: controller.signal });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new BuscadorMcpError('upstream_timeout', 'upstream_timeout');
+      }
+      throw new BuscadorMcpError('upstream_unreachable', redactSecrets(error?.message, secrets));
+    }
+
+    if (!response.ok) {
+      await readTextLimited(response);
+      throw new BuscadorMcpError(
+        classifyHttpError(response.status),
+        `upstream_http_${response.status}`,
+        { http_status: response.status },
+      );
+    }
+    if (!response.body) {
+      throw new BuscadorMcpError('invalid_response', 'upstream_invalid_json', { http_status: response.status });
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let total = 0;
+    let buffer = '';
+    const events = [];
+    const parseLine = (line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      try {
+        const event = JSON.parse(trimmed);
+        if (!isObject(event)) throw new Error('not_object');
+        events.push(event);
+      } catch {
+        throw new BuscadorMcpError('invalid_response', 'upstream_invalid_json', { http_status: response.status });
+      }
+    };
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > MAX_RESPONSE_BYTES) {
+          throw new BuscadorMcpError('invalid_response', 'upstream_response_too_large');
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() ?? '';
+        for (const line of lines) parseLine(line);
+      }
+      buffer += decoder.decode();
+      parseLine(buffer);
+    } catch (error) {
+      try {
+        await reader.cancel();
+      } catch {
+        // The stream may already be errored/aborted; preserve the original failure.
+      }
+      if (error instanceof BuscadorMcpError) throw error;
+      if (controller.signal.aborted) {
+        throw new BuscadorMcpError('upstream_timeout', 'upstream_timeout');
+      }
+      throw new BuscadorMcpError(
+        'upstream_unreachable',
+        redactSecrets(error?.message, secrets),
+      );
+    } finally {
+      reader.releaseLock();
+    }
+
+    if (events.length === 0) {
+      throw new BuscadorMcpError('invalid_response', 'upstream_invalid_json', { http_status: response.status });
+    }
+    const started = events.find((event) => event?.type === 'cycle_started') ?? null;
+    const finishedEvents = events.filter((event) => event?.type === 'cycle_finished');
+    if (finishedEvents.length !== 1) {
+      throw new BuscadorMcpError('invalid_response', 'upstream_invalid_cycle', { http_status: response.status });
+    }
+    const [finished] = finishedEvents;
+    return {
+      payload: {
+        ok: finished?.ok === true,
+        endpoint: 'buscador',
+        cycle_id: started?.cycle_id ?? finished?.cycle_id ?? null,
+        events,
+      },
+      httpStatus: response.status,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 function jsonToolResult(data, isError = false) {
   return {
     content: [{ type: 'text', text: JSON.stringify(data) }],
@@ -398,17 +503,17 @@ export function createBuscadorMcpServer({
         const input = validateRunInput(args);
         if (!key) throw new BuscadorMcpError('auth_error', 'BUSCADOR_MCP_KEY_not_configured');
 
-        const { payload, httpStatus } = await runGuard.execute(() => requestJson({
+        const { payload, httpStatus } = await runGuard.execute(() => requestNdjson({
           fetchImpl,
           url: BUSCADOR_UPSTREAM_URL,
           init: {
             method: 'POST',
             headers: {
-              Accept: 'application/json',
+              Accept: 'application/x-ndjson',
               'Content-Type': 'application/json',
               Authorization: `Bearer ${key}`,
             },
-            body: JSON.stringify({ ...input, stream: false }),
+            body: JSON.stringify({ ...input, stream: true }),
           },
           timeoutMs: parseTimeout(),
           secrets: [key],
