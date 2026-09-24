@@ -1,5 +1,7 @@
 # Gepeto Plugin + Buscador MCP Rollout Implementation Plan
 
+> **SUPERSEDED em 2026-09-24 quanto ao transporte `stream=false`:** auditoria real reproduziu HTTP 524 em ciclo profundo concluído pelo backend. O contrato vigente está em `docs/buscador-mcp.md` e usa streaming NDJSON interno com agregação no MCP.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Finish, harden, deploy, connect, and certify the already-merged private Buscador MCP so the migrated Gepeto Plugin can invoke OpenAI + Claude + Gemini through exactly two MCP tools without exposing secrets or creating false consensus.
