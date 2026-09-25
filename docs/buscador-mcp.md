@@ -9,7 +9,7 @@ O endpoint MCP local é `http://127.0.0.1:8787/mcp` e anuncia exatamente duas to
 - `getBuscadorHealth`
 - `runBuscador`
 
-`runBuscador` força `stream=false`, usa upstream fixo `https://shopvivaliz.com.br/api/agent/buscador.php` e nunca aceita URL fornecida pelo modelo.
+`runBuscador` usa streaming NDJSON no upstream fixo `https://shopvivaliz.com.br/api/agent/buscador.php`, agrega os eventos no adaptador e nunca aceita URL fornecida pelo modelo. O stream não é exposto como parâmetro da tool.
 
 Consenso completo só existe quando OpenAI, Anthropic e Gemini aparecem, todos terminam com status `ok`, o evento `consensus` existe e `cycle_finished` confirma cobertura completa.
 
