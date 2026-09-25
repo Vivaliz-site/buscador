@@ -171,7 +171,7 @@ test('runBuscador classifies network failures and redacts secrets', async () => 
   await handler.close();
 });
 
-test('runBuscador rejects invalid JSON and oversized upstream bodies', async () => {
+test('runBuscador rejects invalid NDJSON and oversized upstream bodies', async () => {
   const invalid = makeHandler(async () => new Response(
     'not-json',
     { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -181,7 +181,7 @@ test('runBuscador rejects invalid JSON and oversized upstream bodies', async () 
     arguments: { message: 'teste', profile: 'fast', mode: 'parallel' },
   });
   assert.equal(invalidBody.result.structuredContent.error_class, 'invalid_response');
-  assert.equal(invalidBody.result.structuredContent.error, 'upstream_invalid_json');
+  assert.equal(invalidBody.result.structuredContent.error, 'upstream_invalid_ndjson');
   await invalid.close();
 
   const oversized = makeHandler(async () => new Response('x'.repeat(2_000_001), { status: 200 }));
