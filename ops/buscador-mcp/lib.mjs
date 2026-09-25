@@ -285,6 +285,98 @@ async function requestJson({
   }
 }
 
+async function requestNdjson({
+  fetchImpl,
+  url,
+  init,
+  timeoutMs,
+  secrets = [],
+}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    let response;
+    try {
+      response = await fetchImpl(url, { ...init, redirect: 'error', signal: controller.signal });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new BuscadorMcpError('upstream_timeout', 'upstream_timeout');
+      }
+      throw new BuscadorMcpError('upstream_unreachable', redactSecrets(error?.message, secrets));
+    }
+
+    if (!response.ok) {
+      await readTextLimited(response);
+      throw new BuscadorMcpError(
+        classifyHttpError(response.status),
+        `upstream_http_${response.status}`,
+        { http_status: response.status },
+      );
+    }
+
+    if (!response.body) {
+      throw new BuscadorMcpError('invalid_response', 'upstream_empty_body', { http_status: response.status });
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const events = [];
+    let buffer = '';
+    let total = 0;
+
+    const parseLine = (line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      try {
+        const event = JSON.parse(trimmed);
+        if (!isObject(event)) throw new Error('event_not_object');
+        events.push(event);
+      } catch {
+        throw new BuscadorMcpError('invalid_response', 'upstream_invalid_ndjson', {
+          http_status: response.status,
+        });
+      }
+    };
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > MAX_RESPONSE_BYTES) {
+          await reader.cancel();
+          throw new BuscadorMcpError('invalid_response', 'upstream_response_too_large');
+        }
+        buffer += decoder.decode(value, { stream: true });
+        let newline;
+        while ((newline = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, newline);
+          buffer = buffer.slice(newline + 1);
+          parseLine(line);
+        }
+      }
+      buffer += decoder.decode();
+      parseLine(buffer);
+    } finally {
+      reader.releaseLock();
+    }
+
+    const finished = [...events].reverse().find((event) => event?.type === 'cycle_finished') ?? null;
+    const cycleStarted = events.find((event) => event?.type === 'cycle_started') ?? null;
+    return {
+      payload: {
+        ok: finished?.ok === true,
+        endpoint: 'buscador',
+        cycle_id: finished?.cycle_id ?? cycleStarted?.cycle_id ?? null,
+        events,
+      },
+      httpStatus: response.status,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function jsonToolResult(data, isError = false) {
   return {
     content: [{ type: 'text', text: JSON.stringify(data) }],
@@ -398,17 +490,17 @@ export function createBuscadorMcpServer({
         const input = validateRunInput(args);
         if (!key) throw new BuscadorMcpError('auth_error', 'BUSCADOR_MCP_KEY_not_configured');
 
-        const { payload, httpStatus } = await runGuard.execute(() => requestJson({
+        const { payload, httpStatus } = await runGuard.execute(() => requestNdjson({
           fetchImpl,
           url: BUSCADOR_UPSTREAM_URL,
           init: {
             method: 'POST',
             headers: {
-              Accept: 'application/json',
+              Accept: 'application/x-ndjson, application/json',
               'Content-Type': 'application/json',
               Authorization: `Bearer ${key}`,
             },
-            body: JSON.stringify({ ...input, stream: false }),
+            body: JSON.stringify({ ...input, stream: true }),
           },
           timeoutMs: parseTimeout(),
           secrets: [key],
