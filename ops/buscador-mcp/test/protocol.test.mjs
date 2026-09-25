@@ -75,44 +75,49 @@ test('getBuscadorHealth uses fixed upstream and preserves configured_unverified'
   await handler.close();
 });
 
-test('runBuscador forces stream=false and auth stays server-side', async () => {
+test('runBuscador uses streaming NDJSON upstream and aggregates the completed cycle', async () => {
   let captured = null;
+  const events = [
+    { type: 'cycle_started', cycle_id: 'cycle-test', profile: 'fast', mode: 'parallel' },
+    { type: 'agent_message', cycle_id: 'cycle-test', provider: 'openai', phase: 'research', ok: true, text: 'a', sources: [] },
+    { type: 'agent_message', cycle_id: 'cycle-test', provider: 'anthropic', phase: 'research', ok: true, text: 'b', sources: [] },
+    { type: 'agent_message', cycle_id: 'cycle-test', provider: 'gemini', phase: 'research', ok: true, text: 'c', sources: [] },
+    { type: 'consensus', cycle_id: 'cycle-test', provider: 'gemini', ok: true, text: 'done', sources: [] },
+    {
+      type: 'cycle_finished',
+      cycle_id: 'cycle-test',
+      ok: true,
+      provider_status: { openai: 'ok', anthropic: 'ok', gemini: 'ok' },
+      provider_phase_status: {
+        openai: { research: { status: 'ok' } },
+        anthropic: { research: { status: 'ok' } },
+        gemini: { research: { status: 'ok' } },
+      },
+      complete_provider_coverage: true,
+      consensus_available: true,
+      message_count: 3,
+    },
+  ];
+
   const handler = makeHandler(async (url, init) => {
     captured = { url: String(url), init };
-    return new Response(JSON.stringify({
-      ok: true,
-      endpoint: 'buscador',
-      cycle_id: 'cycle-test',
-      events: [
-        { type: 'agent_message', provider: 'openai', phase: 'research', ok: true, text: 'a', sources: [] },
-        { type: 'agent_message', provider: 'anthropic', phase: 'research', ok: true, text: 'b', sources: [] },
-        { type: 'agent_message', provider: 'gemini', phase: 'research', ok: true, text: 'c', sources: [] },
-        { type: 'consensus', provider: 'gemini', ok: true, text: 'done', sources: [] },
-        {
-          type: 'cycle_finished',
-          ok: true,
-          provider_status: { openai: 'ok', anthropic: 'ok', gemini: 'ok' },
-          provider_phase_status: {
-            openai: { research: { status: 'ok' } },
-            anthropic: { research: { status: 'ok' } },
-            gemini: { research: { status: 'ok' } },
-          },
-          complete_provider_coverage: true,
-          consensus_available: true,
-          message_count: 3,
-        },
-      ],
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const ndjson = events.map((event) => JSON.stringify(event)).join('\n') + '\n';
+    return new Response(ndjson, {
+      status: 200,
+      headers: { 'Content-Type': 'application/x-ndjson' },
+    });
   });
 
   const body = await rpc(handler, 3, 'tools/call', {
     name: 'runBuscador',
     arguments: { message: 'teste', profile: 'fast', mode: 'parallel' },
   });
+
   assert.equal(captured.url, 'https://shopvivaliz.com.br/api/agent/buscador.php');
-  assert.equal(JSON.parse(captured.init.body).stream, false);
+  assert.equal(JSON.parse(captured.init.body).stream, true);
   assert.equal(captured.init.headers.Authorization, 'Bearer test-key-never-log');
   assert.equal(body.result.structuredContent.complete_consensus, true);
+  assert.equal(body.result.structuredContent.cycle_id, 'cycle-test');
   assert.equal(JSON.stringify(body).includes('test-key-never-log'), false);
   await handler.close();
 });
