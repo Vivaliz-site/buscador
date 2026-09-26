@@ -100,7 +100,7 @@ function svais_profile_catalog(): array
                 'web_search_max_uses' => 10,
             ],
             'gemini' => [
-                'model' => getenv('BUSCADOR_GEMINI_MODEL') ?: 'gemini-2.5-flash',
+                'model' => getenv('BUSCADOR_GEMINI_MODEL') ?: 'gemini-3.5-flash',
                 'thinking_level' => 'MEDIUM',
                 'max_output_tokens' => 7000,
             ],
@@ -121,7 +121,7 @@ function svais_profile_catalog(): array
                 'web_search_max_uses' => 6,
             ],
             'gemini' => [
-                'model' => getenv('BUSCADOR_GEMINI_BALANCED_MODEL') ?: 'gemini-2.5-flash',
+                'model' => getenv('BUSCADOR_GEMINI_BALANCED_MODEL') ?: 'gemini-3.5-flash',
                 'thinking_level' => 'MEDIUM',
                 'max_output_tokens' => 4500,
             ],

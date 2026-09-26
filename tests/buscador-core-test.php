@@ -19,13 +19,13 @@ ais_assert(($deep['openai']['model'] ?? '') === (getenv('BUSCADOR_OPENAI_MODEL')
 ais_assert(($deep['openai']['effort'] ?? '') === 'medium', 'deep OpenAI effort must be medium');
 ais_assert(($deep['anthropic']['model'] ?? '') === svais_non_fable_model('BUSCADOR_ANTHROPIC_MODEL', 'claude-sonnet-5'), 'deep Anthropic model mismatch');
 ais_assert(($deep['anthropic']['effort'] ?? '') === 'medium', 'deep Anthropic effort must be medium');
-ais_assert(($deep['gemini']['model'] ?? '') === (getenv('BUSCADOR_GEMINI_MODEL') ?: 'gemini-2.5-flash'), 'deep Gemini model mismatch');
+ais_assert(($deep['gemini']['model'] ?? '') === (getenv('BUSCADOR_GEMINI_MODEL') ?: 'gemini-3.5-flash'), 'deep Gemini model mismatch');
 ais_assert(($deep['gemini']['thinking_level'] ?? '') === 'MEDIUM', 'deep Gemini thinking must be MEDIUM');
-ais_assert(svais_gemini_thinking_config($deep['gemini']) === ['thinkingBudget' => 8192], 'Gemini 2.5 MEDIUM must use thinkingBudget 8192');
+ais_assert(svais_gemini_thinking_config($deep['gemini']) === ['thinkingLevel' => 'medium'], 'Gemini 3.5 MEDIUM must use thinkingLevel');
 $balanced = $catalog['balanced'];
-ais_assert(($balanced['gemini']['model'] ?? '') === (getenv('BUSCADOR_GEMINI_BALANCED_MODEL') ?: 'gemini-2.5-flash'), 'balanced Gemini model mismatch');
+ais_assert(($balanced['gemini']['model'] ?? '') === (getenv('BUSCADOR_GEMINI_BALANCED_MODEL') ?: 'gemini-3.5-flash'), 'balanced Gemini model mismatch');
 ais_assert(($balanced['gemini']['thinking_level'] ?? '') === 'MEDIUM', 'balanced Gemini thinking must be MEDIUM');
-ais_assert(svais_gemini_thinking_config($balanced['gemini']) === ['thinkingBudget' => 8192], 'balanced Gemini 2.5 MEDIUM must use thinkingBudget 8192');
+ais_assert(svais_gemini_thinking_config($balanced['gemini']) === ['thinkingLevel' => 'medium'], 'balanced Gemini 3.5 MEDIUM must use thinkingLevel');
 $fast = $catalog['fast'];
 ais_assert(svais_gemini_thinking_config($fast['gemini']) === ['thinkingLevel' => 'low'], 'Gemini 3.5 LOW must use thinkingLevel');
 ais_assert(svais_gemini_thinking_config(['model' => 'gemini-3-flash-preview', 'thinking_level' => 'MEDIUM']) === ['thinkingLevel' => 'medium'], 'Gemini 3 must use thinkingLevel');
@@ -390,4 +390,4 @@ ais_assert(str_contains((string)file_get_contents(dirname(__DIR__) . '/includes/
 echo "BUSCADOR_CORE_TEST=PASS\n";
 
 // Provider contract regression guard.
-ais_assert((svais_profile('deep_research')['gemini']['model'] ?? '') === 'gemini-2.5-flash', 'deep_research must default to gemini-2.5-flash');
+ais_assert((svais_profile('deep_research')['gemini']['model'] ?? '') === 'gemini-3.5-flash', 'deep_research must default to gemini-3.5-flash');

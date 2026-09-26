@@ -30,7 +30,7 @@ grep -q 'claude_code' "$docs"
 grep -q 'vertex_oauth' "$docs"
 grep -Fq 'OpenAI: `gpt-5.6-terra`, effort `medium`;' "$docs"
 grep -Fq 'Anthropic: `claude-sonnet-5`, effort `medium`;' "$docs"
-grep -Fq 'Gemini: `gemini-2.5-flash`, thinking `MEDIUM`;' "$docs"
+grep -Fq 'Gemini: `gemini-3.5-flash`, thinking `MEDIUM`;' "$docs"
 
 ! grep -q "getenv('OPENAI_API_KEY')" "$core"
 ! grep -q "getenv('ANTHROPIC_API_KEY')" "$core"
