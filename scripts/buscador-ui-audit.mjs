@@ -30,6 +30,8 @@ function fail(message) {
   throw new Error('BUSCADOR_UI_AUDIT_FAIL: ' + message);
 }
 
+if (browserHeadless) fail('headless_mode_not_certifiable');
+
 const raw = JSON.parse(fs.readFileSync(credentialFile, 'utf8'));
 if (!raw.email || !raw.password) fail('credential_file_invalid');
 if (!ephemeralProfile) fs.mkdirSync(profileDir, { recursive: true, mode: 0o700 });
