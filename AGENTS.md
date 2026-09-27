@@ -17,3 +17,8 @@ Se existir UI, o próprio agente executa E2E real no navegador gráfico no mesmo
 <!-- AUDIT_MERGE_ENFORCEMENT_V1 -->
 ## Enforcement absoluto de merge/main
 Em auditoria/aptidão, leia `docs/quality/AUDIT_MERGE_ENFORCEMENT_V1.md`. O gate local deve executar `scripts/absolute-audit-governance-validate.sh`, e todo push em `main`/`master` deve passar pelo **Absolute Audit Main Guard** com prova de PR mesclado.
+
+<!-- GLOBAL_TASK_CONTINUITY_V8 -->
+## Global task continuity V8
+Tasks that can mutate code, infrastructure, data, CI, or deployment must use `python3 scripts/agent_task_state.py` to persist durable progress. This repository is pinned as `repository=Vivaliz-site/buscador`. Recoverable failures remain RUNNING; completion requires fresh verification. The adapter fails closed if the canonical A1 controller is unavailable. Background recovery is Gemini-only. Codex is never an automatic fallback and remains the last explicit finite option.
+<!-- /GLOBAL_TASK_CONTINUITY_V8 -->
