@@ -22,3 +22,17 @@ Em auditoria/aptidão, leia `docs/quality/AUDIT_MERGE_ENFORCEMENT_V1.md`. O gate
 ## Global task continuity V8
 Tasks that can mutate code, infrastructure, data, CI, or deployment must use `python3 scripts/agent_task_state.py` to persist durable progress. This repository is pinned as `repository=Vivaliz-site/buscador`. Recoverable failures remain RUNNING; completion requires fresh verification. The adapter fails closed if the canonical A1 controller is unavailable. Background recovery is Gemini-only. Codex is never an automatic fallback and remains the last explicit finite option.
 <!-- /GLOBAL_TASK_CONTINUITY_V8 -->
+
+<!-- CHECKPOINT_FIRST_V9 -->
+## Checkpoint antes da primeira etapa material
+Toda tarefa potencialmente longa ou mutável deve registrar `agent_task_state.py start`
+**antes** da primeira investigação extensa, chamada remota material, edição, mutação,
+execução longa, delegação ou espera de CI. O objetivo é eliminar a janela em que uma
+interrupção do ChatGPT ocorre antes de existir estado durável.
+
+Depois de cada avanço material, atualize `progress` com evidência e `next_action`.
+Não adie o primeiro checkpoint para depois do diagnóstico. Se o contexto atual não
+consegue alcançar o controlador canônico, falhe fechado para tarefas que dependem de
+retomada automática e use a rota operacional auditável que consiga registrar o estado.
+<!-- /CHECKPOINT_FIRST_V9 -->
+
