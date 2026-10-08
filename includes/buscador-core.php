@@ -89,7 +89,7 @@ function svais_profile_catalog(): array
             'rounds' => 2,
             'web_search' => true,
             'openai' => [
-                'model' => getenv('BUSCADOR_OPENAI_MODEL') ?: 'gpt-5.6-terra',
+                'model' => getenv('BUSCADOR_OPENAI_MODEL') ?: 'gpt-6-luna',
                 'effort' => 'medium',
                 'max_output_tokens' => 7000,
             ],
@@ -110,8 +110,8 @@ function svais_profile_catalog(): array
             'rounds' => 2,
             'web_search' => true,
             'openai' => [
-                'model' => getenv('BUSCADOR_OPENAI_BALANCED_MODEL') ?: 'gpt-5.6-terra',
-                'effort' => 'high',
+                'model' => getenv('BUSCADOR_OPENAI_BALANCED_MODEL') ?: 'gpt-6-luna',
+                'effort' => 'medium',
                 'max_output_tokens' => 4500,
             ],
             'anthropic' => [
@@ -131,7 +131,7 @@ function svais_profile_catalog(): array
             'rounds' => 1,
             'web_search' => false,
             'openai' => [
-                'model' => getenv('BUSCADOR_OPENAI_FAST_MODEL') ?: 'gpt-5.6-luna',
+                'model' => getenv('BUSCADOR_OPENAI_FAST_MODEL') ?: 'gpt-6-luna',
                 'effort' => 'medium',
                 'max_output_tokens' => 2500,
             ],
