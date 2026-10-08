@@ -14,12 +14,12 @@ import {
 } from '../ops/buscador/codex-bridge.mjs';
 
 const valid = validateRequest({
-  model: 'gpt-5.6-sol',
+  model: 'gpt-6-luna',
   effort: 'xhigh',
   prompt: 'pesquise',
   web_search: true,
 });
-assert.equal(valid.model, 'gpt-5.6-sol');
+assert.equal(valid.model, 'gpt-6-luna');
 assert.equal(valid.effort, 'xhigh');
 assert.equal(valid.web_search, true);
 
@@ -37,7 +37,7 @@ assert.throws(() => validateRequest({
 }), /invalid_model/);
 
 assert.throws(() => validateRequest({
-  model: 'gpt-5.6-sol',
+  model: 'gpt-6-luna',
   effort: 'extreme',
   prompt: 'x',
   web_search: true,
@@ -52,8 +52,8 @@ assert.equal(classifyRateLimit({
   rateLimitReachedType: null,
 }), 'available');
 
-assert.equal(exactModelMatches('gpt-5.6-sol', 'gpt-5.6-sol'), true);
-assert.equal(exactModelMatches('gpt-5.6-sol', 'gpt-5.6-terra'), false);
+assert.equal(exactModelMatches('gpt-6-luna', 'gpt-6-luna'), true);
+assert.equal(exactModelMatches('gpt-6-luna', 'gpt-6-sol'), false);
 
 assert.equal(remainingRequestMs(5000, 1000, 10000), 4000);
 assert.equal(remainingRequestMs(5000, 1000, 2500), 2500);

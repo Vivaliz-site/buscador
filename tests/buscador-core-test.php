@@ -15,7 +15,7 @@ $catalog = svais_profile_catalog();
 ais_assert(isset($catalog['deep_research'], $catalog['balanced'], $catalog['fast']), 'expected profiles missing');
 
 $deep = $catalog['deep_research'];
-ais_assert(($deep['openai']['model'] ?? '') === (getenv('BUSCADOR_OPENAI_MODEL') ?: 'gpt-5.6-terra'), 'deep OpenAI model mismatch');
+ais_assert(($deep['openai']['model'] ?? '') === (getenv('BUSCADOR_OPENAI_MODEL') ?: 'gpt-6-luna'), 'deep OpenAI model mismatch');
 ais_assert(($deep['openai']['effort'] ?? '') === 'medium', 'deep OpenAI effort must be medium');
 ais_assert(($deep['anthropic']['model'] ?? '') === svais_non_fable_model('BUSCADOR_ANTHROPIC_MODEL', 'claude-sonnet-5'), 'deep Anthropic model mismatch');
 ais_assert(($deep['anthropic']['effort'] ?? '') === 'medium', 'deep Anthropic effort must be medium');
@@ -324,7 +324,7 @@ try {
                     'text' => 'wrong-model',
                     'sources' => [],
                     'usage' => [],
-                    'model' => 'gpt-5.6-sol',
+                    'model' => 'gpt-6-sol',
                     'transport' => 'codex_chatgpt',
                 ];
             }
