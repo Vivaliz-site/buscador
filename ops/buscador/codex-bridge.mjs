@@ -7,9 +7,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ALLOWED_MODELS = new Set([
-  'gpt-5.6-sol',
-  'gpt-5.6-terra',
-  'gpt-5.6-luna',
+  'gpt-6-luna',
 ]);
 const ALLOWED_EFFORTS = new Set(['xhigh', 'high', 'medium', 'low']);
 const DEFAULT_PORT = 17656;
@@ -350,8 +348,8 @@ async function bridgeHealth() {
   let exhausted = 0;
   let authenticated = 0;
   const probeRequest = {
-    model: 'gpt-5.6-luna',
-    effort: 'low',
+    model: 'gpt-6-luna',
+    effort: 'medium',
     prompt: 'health',
     web_search: false,
   };
