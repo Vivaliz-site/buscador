@@ -1,3 +1,17 @@
+<!-- AUTONOMOUS_RESUME_TO_VALIDATED_COMPLETION_V1 -->
+## Regra obrigatoria: retomar e executar ate conclusao comprovada
+
+- Recuperar ultimo estado/checkpoint e preservar operacoes ja concluidas antes de agir.
+- Ciclo: verificar estado -> executar -> detectar falhas -> corrigir causa raiz -> prevenir -> testar -> retomar -> validar.
+- Diagnostico, relatorio, PR, timeout ou falha transitoria nao encerram a tarefa enquanto houver acao segura, autorizada e viavel.
+- Recuperar navegador/MCP/RDC/API/CLI/worker/rede de forma idempotente e usar fallback autorizado, respeitando controles de seguranca.
+- Usar checkpoints e logs quando disponiveis; nao alegar execucao em segundo plano sem controlador ativo.
+- Manter RUNNING ate evidencia fresca de testes e validacao runtime/E2E aplicavel permitir CONCLUIDO.
+- Para bloqueio externo ou aprovacao pendente, registrar evidencias, tentativas, checkpoint e acao exata para retomar. Nao contornar aprovacoes, MFA ou protecoes de branch.
+- Aplicavel a agentes, subagentes, Codex e automacoes; preservar normas especificas e limites da sessao.
+Fonte global: Vivaliz-site/site-shopvivaliz/REGRAS-AGENTES-CENTRALIZADAS.md.
+<!-- /AUTONOMOUS_RESUME_TO_VALIDATED_COMPLETION_V1 -->
+
 <!-- AUDIT_EXTERNAL_REMEDIATION_V1 -->
 > **AUDITORIA EXTERNA TAMBÉM É CORRETIVA:** auditoria interna, externa, independente, contraditória ou feita por outro agente/revisor segue o mesmo ciclo. Auditor externo com autorização deve corrigir, testar e reauditar. Se for read-only, o relatório não encerra: os achados corrigíveis seguem para executor autorizado e permanecem em andamento até correção + revalidação independente ou bloqueio externo comprovado.
 <!-- /AUDIT_EXTERNAL_REMEDIATION_V1 -->
