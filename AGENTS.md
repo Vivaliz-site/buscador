@@ -1,3 +1,9 @@
+<!-- AUDIT_UI_EVIDENCE_INTEGRITY_V2 -->
+## Auditoria V5 na interface grafica real, sem abandono
+
+Todos os agentes devem executar `docs/quality/AUDIT_UI_EVIDENCE_INTEGRITY_V2.md`: UI real, cada jornada/controle/caso material, trace/video e evidencias em disco com hash recomputado, RED/GREEN/regressao, reauditoria independente e pos-deploy. API/SQL/CLI, headless-only, flags ou screenshot estatico nao autorizam APTO. Usar checkpoint `RUNNING` com `next_action` concreta ate certifier oficial produzir `AUDIT_VERDICT=APTO` e controlador confirmar terminal; falha temporaria ou PR nao encerra. Manter regras de seguranca e autorizacao.
+<!-- /AUDIT_UI_EVIDENCE_INTEGRITY_V2 -->
+
 <!-- EXTREME_AUDIT_UI_FIRST_HARD_GATE_V1 -->
 ## GATE INEGOCIAVEL: Auditoria Extrema V5 executada pela UI real
 
