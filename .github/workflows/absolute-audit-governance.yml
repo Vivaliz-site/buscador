@@ -65,6 +65,7 @@ jobs:
       - name: Verify global policy parity
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -Eeuo pipefail
-          python3 scripts/validate-global-audit-policy.py --output-dir artifacts/global-audit-policy
+          python3 scripts/validate-global-audit-policy-authenticated.py --output-dir artifacts/global-audit-policy
