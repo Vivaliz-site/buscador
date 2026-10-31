@@ -1,3 +1,18 @@
+<!-- AUDIT_UI_EVIDENCE_INTEGRITY_V2 -->
+## Auditoria Extrema V5: prova real pela UI e continuidade até APTO
+
+Todos os agentes, subagentes e revisores executam o E2E na UI gráfica real publicada quando ela existe. A certificação obrigatória exige arquivos físicos com SHA-256 recalculado pelo certifier, inventário independente de telas/controles/jornadas, registros de ações pela UI, cobertura caso a caso, correções RED/GREEN e regressão, reauditoria contraditória por outra sessão e prova pós-deploy. API, CLI, SQL, saúde de serviço, screenshot isolado ou headless-only nunca substituem a UI. Sem evidência verificável, `NAO_APTO`; o agente é proibido de afirmar `APTO` ou abandonar o objetivo. Manter checkpoint durável `RUNNING` com `next_action` para recuperação pelo controlador, sob limites seguros de custos/autorizações; encerrar `CONCLUIDO` exclusivamente após o certifier oficial e E2E real da mesma versão/ambiente. Exceção: `BLOCKED_EXTERNAL` comprovado após esgotamento das alternativas autorizadas, nunca como sucesso. Fonte: `AUDIT_POLICY.md` e `docs/quality/AUDIT_UI_EVIDENCE_INTEGRITY_V2.md`.
+<!-- /AUDIT_UI_EVIDENCE_INTEGRITY_V2 -->
+
+<!-- AUDIT_EXTERNAL_REMEDIATION_V1 -->
+## Auditoria externa também é corretiva
+
+- A regra de auditoria corretiva vale igualmente para **auditoria interna, externa, independente, contraditória, de terceiro ou executada por outro agente/revisor**.
+- Se o auditor externo tiver acesso e autorização operacional para corrigir, ele deve remediar os achados materiais, testar e reauditar antes de encerrar.
+- Se o papel externo for deliberadamente somente leitura ou não tiver permissão de escrita, o relatório externo **não encerra a tarefa**: cada achado corrigível deve ser encaminhado a um executor autorizado, e o estado permanece em andamento até correção e revalidação independente.
+- Uma auditoria externa só pode terminar com pendência quando houver bloqueio externo objetivo ou ação fora da autorização vigente, com evidência e ação exata para destravar.
+- A independência da auditoria externa deve ser preservada na validação: quem corrige não substitui a revalidação independente quando ela for exigida pelo escopo.
+<!-- /AUDIT_EXTERNAL_REMEDIATION_V1 -->
 # 📋 REGRAS PARA AGENTES IA - FONTE ÚNICA CENTRALIZADA
 
 **Efetivo:** 2026-07-24
@@ -26,6 +41,56 @@ Esta regra é vinculante para **todos os agentes, chats, conversas, sessões e r
 
 Esta regra é contínua e prevalece sobre hábitos de sessão que tratem Superpowers apenas como bootstrap inicial.
 
+<!-- AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1 -->
+## Auditoria corretiva obrigatória para todos os agentes
+
+Todo pedido de auditoria, com ou sem os termos extrema, completa, E2E ou aptidão, deve ser tratado como ciclo de **investigação, correção, prevenção e validação**.
+
+- Não encerrar a auditoria apenas relacionando erros quando houver correção segura, autorizada e tecnicamente executável.
+- Para cada achado material no escopo: investigar a causa raiz, corrigir, aplicar prevenção quando pertinente, testar e reauditar.
+- Relatório de achados, recomendação, plano ou issue são estados intermediários enquanto houver ação segura executável.
+- APTO, COMPROVADO ou CONCLUIDO exigem evidência fresca pós-correção e validação real/E2E quando aplicável.
+- Pendência só é aceitável quando existir impedimento externo objetivo ou ação fora da autorização vigente, depois de esgotadas as alternativas seguras disponíveis.
+- Todo impedimento remanescente deve registrar evidência, causa, tentativas realizadas e a ação exata necessária para continuidade.
+- A coleta inicial de evidências permanece não invasiva; a etapa de remediação deve executar as correções seguras e autorizadas encontradas pela própria auditoria.
+
+<!-- /AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1 -->
+
+<!-- DIAGNOSTIC_REMEDIATE_VALIDATE_GLOBAL_V1 -->
+## Diagnóstico corretivo obrigatório para todos os agentes
+
+Esta regra se aplica a **todo diagnóstico de qualquer tarefa**, não apenas auditorias. Diagnosticar significa iniciar o ciclo de correção; nunca encerrar apenas porque a causa foi identificada.
+
+Fluxo obrigatório quando um defeito material é confirmado e está dentro do escopo autorizado:
+
+1. reproduzir/confirmar com evidência;
+2. investigar causa raiz e equivalentes relevantes;
+3. aplicar correção segura;
+4. aplicar prevenção de recorrência quando pertinente;
+5. executar testes de regressão;
+6. validar no runtime real e E2E quando aplicável;
+7. repetir o diagnóstico para comprovar que a falha desapareceu sem criar regressão.
+
+Enquanto existir ação segura executável, o estado permanece `RUNNING`. Relatório, issue, recomendação, healthcheck verde, processo vivo, serviço `active`, endpoint existente, HTTP 200 ou teste superficial não equivalem a correção nem autorizam `APTO`/`CONCLUIDO`.
+
+`CONCLUIDO` exige evidência fresca pós-correção do comportamento afetado. `BLOCKED_EXTERNAL` só é permitido com impedimento externo objetivo, evidência concreta e demonstração de que as alternativas seguras/autorizadas foram esgotadas, incluindo a ação exata necessária para retomar.
+
+A política vale para ChatGPT, Claude, Gemini, Codex, agentes auxiliares, controladores, workers e automações, em debugging, infraestrutura, browser, integrações, deploy, continuidade, health, auditoria e qualquer outro diagnóstico.
+<!-- /DIAGNOSTIC_REMEDIATE_VALIDATE_GLOBAL_V1 -->
+
+<!-- REMOTE_ACCESS_EXHAUSTION_GATE_V2 -->
+## Esgotar caminhos autorizados de acesso antes de declarar bloqueio
+
+Regra obrigatória para GPT, Claude, Gemini, Codex, agentes auxiliares, controladores, workers e automações ShopVivaliz. Em qualquer tarefa remota ou retomada, uma falha em um canal **não** prova que o host ou a ação estão inacessíveis. O agente deve continuar enquanto houver uma rota segura, autorizada e tecnicamente viável.
+
+1. **Confirmar o alvo e as permissões reais:** consultar esta política, `AGENTS.md`, `docs/knowledge/host-access.md` e o runbook do serviço na revisão atual. Confirmar host canônico, conta/perfil, identidade, privilégio, escopo do conector e se a rota está de fato provisionada. Não presumir que token, plugin, túnel ou sessão exista só porque foi usado antes.
+2. **Inventariar e tentar rotas adequadas, em ordem e com prova:** ShopVivaliz Remote Control MCP/controlador; RDC e RDC 2; SSH privado, VCN/Tailscale e túneis documentados (incluindo OpenAI Secure MCP Tunnel ou Cloudflare quando forem o transporte autorizado para essa tarefa); GUI/desktop remoto autorizado quando a interação visual for necessária; e OCI Bastion, Compute Run Command, console serial ou GitHub Actions/control plane somente para bootstrap, recuperação ou reparo previstos no runbook. Usar plugin ou credencial de outro projeto/conta somente se a documentação permitir explicitamente.
+3. **Diagnosticar cada falha e usar fallback com critério:** provar conectividade, autenticação, autorização, identidade do host e capacidade para a ação; corrigir defeitos locais ao alcance; fazer retries limitados, idempotentes e com intervalo; então testar a próxima rota independente apropriada. Manter registro não secreto `remote_access_attempts` com rota, alvo, teste, resultado, causa, reparo e próximo passo. Canal não disponível é `NOT_PROVISIONED`, nunca `TRIED`.
+4. **Preservar os limites de segurança:** a ordem do proprietário para continuar exige diligência e persistência, mas não remove gates. Recusa explícita, UAC negado/cancelado, MFA/CAPTCHA/consentimento, RBAC, aprovação administrativa, proteção de branch, rate limit, lease/lock/fencing ativo ou escopo destrutivo bloqueiam aquela mutação. Não repetir por outra ferramenta, conta, tunnel, shell, GitHub Actions, OCI Run Command ou agente para obter o mesmo efeito recusado. Não extrair, imprimir ou reutilizar segredo de outra finalidade. Continuar tarefas independentes que não dependam do gate.
+5. **Critério de bloqueio e retomada:** só declarar `BLOCKED_EXTERNAL` depois de esgotar e registrar todas as rotas adequadas, seguras e autorizadas, com evidência objetiva do impedimento externo e a permissão/ação exata que falta. Isso não equivale a sucesso ou `APTO`: preservar tarefa/checkpoint como `NAO_APTO`, registrar `next_action` segura e retomar assim que o gate mudar. Sem loops infinitos, sem alegar teste de rota não usada e sem abandonar trabalho ainda executável.
+
+**Princípio:** esgotar caminhos significa provar e tentar fallbacks autorizados, não contornar controles. Esta política complementa o gate `REMOTE_ACCESS_EXHAUSTION_GATE_V1` de `AGENTS.md` e prevalece como regra central para todos os agentes.
+<!-- /REMOTE_ACCESS_EXHAUSTION_GATE_V2 -->
 ## ✅ AUTORIZAÇÃO OPERACIONAL DO PROPRIETÁRIO (2026-08-01)
 
 O proprietário autoriza os agentes que tenham capacidade técnica e acesso válido a:
@@ -43,7 +108,7 @@ Esta autorização remove apenas a espera por uma aprovação adicional. Ela nã
 
 Autonomia, conclusão ponta a ponta e autorização operacional **não ampliam o escopo destrutivo**. Exclusão, remoção, reset, revogação ou outra ação irreversível só é permitida quando **o alvo e o resultado destrutivo exatos** estiverem no pedido atual do proprietário. Pedidos genéricos como investigar, auditar, limpar, corrigir, concluir tudo ou fazer o necessário não autorizam apagar projetos, chats, contas ou dados por inferência.
 
-- **Probe, diagnóstico, auditoria, health check e observação são somente leitura.** É proibido invocar `Excluir`, `Delete`, `Remove`, `Reset`, `Revogar` ou confirmação destrutiva em dados reais durante esse tipo de tarefa.
+- **Probe, diagnóstico, health check, observação e a fase inicial de coleta de evidências da auditoria são somente leitura.** A etapa de remediação da auditoria segue `AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1` e executa correções seguras dentro do escopo autorizado. É proibido invocar `Excluir`, `Delete`, `Remove`, `Reset`, `Revogar` ou confirmação destrutiva em dados reais durante esse tipo de tarefa.
 - Se for indispensável testar exclusão, use fixture/sandbox criada especificamente para o teste; nunca um projeto, chat, conta ou dado real do proprietário.
 - É proibido criar task agendada, serviço, script oculto ou processo elevado para contornar limites de permissão de ferramenta ou executar automação destrutiva de UI.
 - Tasks temporárias de UI não podem permanecer ativas após a tarefa e não devem usar `RunLevel Highest` como ponte para interação com aplicações do usuário.
