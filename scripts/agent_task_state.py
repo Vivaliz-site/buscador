@@ -3,15 +3,15 @@ from __future__ import annotations
 import json, os, subprocess, sys
 from pathlib import Path
 REPOSITORY="Vivaliz-site/buscador"
-DEFAULT_CONTROLLER=Path("/home/ubuntu/shopvivaliz-deploy/current/scripts/agent_task_state.py")
-DEFAULT_RUNTIME_DIR=Path("/home/ubuntu/shopvivaliz-deploy/shared/agent-task-state")
 def controller_path():
     v=os.getenv("SHOPVIVALIZ_CONTINUITY_STATE_CLI","").strip()
-    return Path(v).expanduser() if v else DEFAULT_CONTROLLER
+    return Path(v).expanduser() if v else Path()
 def build_controller_env(base=None):
     env=dict(base or os.environ)
     env["SHOPVIVALIZ_TASK_REPOSITORY"]=REPOSITORY
-    env["SHOPVIVALIZ_AGENT_TASK_STATE_DIR"]=str(Path(env.get("SHOPVIVALIZ_AGENT_TASK_STATE_DIR","")).expanduser() if env.get("SHOPVIVALIZ_AGENT_TASK_STATE_DIR","").strip() else DEFAULT_RUNTIME_DIR)
+    runtime=env.get("SHOPVIVALIZ_AGENT_TASK_STATE_DIR","").strip()
+    if runtime:
+        env["SHOPVIVALIZ_AGENT_TASK_STATE_DIR"]=str(Path(runtime).expanduser())
     return env
 def main():
     if sys.argv[1:]==["--adapter-self-test"]:
