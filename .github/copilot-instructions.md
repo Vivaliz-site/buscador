@@ -5,3 +5,5 @@ Por autorizacao expressa do proprietario (06/11/2026), nenhuma tarefa P0/P1 prev
 
 Preservar continuidade ate concluir com verificacao, testes e CI pertinentes. Nao diminuir MFA, RBAC, sigilo, protecao de branch, revisao humana de grants, leases/fencing, protecoes comerciais e recusas de provedores. E proibido reintroduzir burocracia geral sem consentimento do proprietario.
 <!-- /MANDATORY_AGENT_CHECKLIST_V1 -->
+
+**Regras canonicas:** antes de agir ou retomar, ler e seguir `AGENTS.md` na raiz deste repositorio. O documento preserva as validacoes de seguranca e continuidade aplicaveis, sem recriar checklist universal.
