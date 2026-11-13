@@ -288,7 +288,7 @@ function handleEvent(e){
     document.getElementById('consensus').textContent=e.text||'Consenso vazio.';
   }else if(e.type==='cycle_finished'){
     document.getElementById('duration').textContent=fmtMs(e.duration_ms);
-    document.getElementById('phase').textContent='Concluído';
+    document.getElementById('phase').textContent=e.ok===true?'Concluído':'Incompleto';
     const feed=document.getElementById('feed');
     feed.dataset.completeProviderCoverage=String(e.complete_provider_coverage===true);
     feed.dataset.consensusAvailable=String(e.consensus_available===true);
@@ -301,6 +301,8 @@ function handleEvent(e){
     }
     if(e.complete_provider_coverage!==true){
       document.getElementById('consensus').textContent='Cobertura incompleta: consenso não emitido.';
+    }else if(e.consensus_available!==true){
+      document.getElementById('consensus').textContent='Consenso indisponível: o ciclo terminou sem síntese validada.';
     }
   }
 }
