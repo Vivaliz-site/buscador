@@ -405,6 +405,13 @@ function svais_provider_state(array $profile): array
 function svais_safe_error(Throwable $e): string
 {
     $message = preg_replace('/(sk-[A-Za-z0-9_-]+|AIza[A-Za-z0-9_-]+|Bearer\s+\S+)/i', '[redacted]', $e->getMessage());
+    // Provider errors can contain auth values in query strings, JSON or headers.
+    // Preserve diagnostic field names, but never forward their values to the API.
+    $message = preg_replace(
+        "/(\\b(?:access_token|refresh_token|id_token|client_secret|api[_-]?key|x-api-key|password)\\b[\"']?\\s*[:=]\\s*[\"']?)[^\\s&;,\"']+/i",
+        '$1[redacted]',
+        (string)$message
+    );
     return mb_substr((string)$message, 0, 500, 'UTF-8');
 }
 
