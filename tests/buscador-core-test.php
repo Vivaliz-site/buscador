@@ -11,6 +11,23 @@ function ais_assert(bool $condition, string $message): void
     }
 }
 
+// Regressao: mensagens externas aparecem no transcript da API; nunca expor credenciais.
+foreach ([
+    ['provider_http_401: access_token=exampleAccessValue&refresh_token=exampleRefreshValue', ['exampleAccessValue', 'exampleRefreshValue']],
+    ['provider_error: {"client_secret":"exampleClientSecret","api_key":"exampleApiKey"}', ['exampleClientSecret', 'exampleApiKey']],
+    ['provider_error: password=examplePassword&retry=1', ['examplePassword']],
+] as [$rawError, $exampleSecrets]) {
+    $safeError = svais_safe_error(new RuntimeException($rawError));
+    foreach ($exampleSecrets as $exampleSecret) {
+        ais_assert(!str_contains($safeError, $exampleSecret), 'provider error must redact synthetic credentials');
+    }
+    ais_assert(str_contains($safeError, '[redacted]'), 'redacted value must be visible without its secret');
+}
+ais_assert(
+    svais_safe_error(new RuntimeException('timeout contacting provider')) === 'timeout contacting provider',
+    'public diagnostic information must remain available'
+);
+
 $catalog = svais_profile_catalog();
 ais_assert(isset($catalog['deep_research'], $catalog['balanced'], $catalog['fast']), 'expected profiles missing');
 
