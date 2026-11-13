@@ -61,4 +61,19 @@ await new Promise(resolve => setImmediate(resolve));
 assert.match(element('models').textContent, /fast-current-model/,
   'An earlier slow health response must not replace the current profile health');
 assert.doesNotMatch(element('models').textContent, /slow-obsolete-model/);
+// A delayed failure from an obsolete request must not hide newer valid health.
+element('profile').value = 'balanced';
+listeners.get('profile:change')();
+const obsoleteFailure = pending.shift();
+element('profile').value = 'deep_research';
+listeners.get('profile:change')();
+const newestRequest = pending.shift();
+newestRequest.resolve(response('deep-current-model'));
+await new Promise(resolve => setImmediate(resolve));
+assert.match(element('models').textContent, /deep-current-model/);
+obsoleteFailure.resolve({ ok: true, json: async () => { throw new Error('stale request failed'); } });
+await new Promise(resolve => setImmediate(resolve));
+assert.match(element('models').textContent, /deep-current-model/,
+  'An old request error must not hide a newer successful health response');
+
 console.log('BUSCADOR_HEALTH_PROFILE_RACE=PASS');
