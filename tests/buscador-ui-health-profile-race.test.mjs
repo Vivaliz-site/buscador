@@ -19,6 +19,11 @@ const element = (id) => {
       addEventListener(type, fn) { listeners.set(id + ':' + type, fn); },
       appendChild(node) { this.children.push(node); },
     });
+    Object.defineProperty(nodes.get(id), "innerHTML", {
+      configurable: true,
+      get() { return this._html ?? ""; },
+      set(value) { this._html = String(value); this.children = []; },
+    });
   }
   return nodes.get(id);
 };
@@ -75,5 +80,20 @@ obsoleteFailure.resolve({ ok: true, json: async () => { throw new Error('stale r
 await new Promise(resolve => setImmediate(resolve));
 assert.match(element('models').textContent, /deep-current-model/,
   'An old request error must not hide a newer successful health response');
+
+// A changed profile must not display the previous provider as verified.
+assert.equal(element('health').children.length, 1);
+element('profile').value = 'fast';
+listeners.get('profile:change')();
+const failedCurrent = pending.shift();
+assert.equal(element('health').children.length, 0,
+  'Profile switch must immediately hide stale verified health');
+assert.match(element('models').textContent, /Consultando a disponibilidade/,
+  'Loading must distinguish current health from the previous profile');
+failedCurrent.resolve({ ok: false, json: async () => ({ ok: false }) });
+await new Promise(resolve => setImmediate(resolve));
+assert.equal(element('health').children.length, 0,
+  'A failed health request must not retain previously verified pills');
+assert.match(element('models').textContent, /N.o foi poss.vel consultar/);
 
 console.log('BUSCADOR_HEALTH_PROFILE_RACE=PASS');
