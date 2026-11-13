@@ -310,6 +310,8 @@ function handleEvent(e){
 async function loadHealth(){
   const requestId=++healthRequestId;
   const profile=document.getElementById('profile').value;
+  document.getElementById('health').innerHTML='';
+  document.getElementById('models').textContent='Consultando a disponibilidade do perfil...';
   try{
     const r=await fetch(API+'?health=1&profile='+encodeURIComponent(profile),{credentials:'same-origin'});
     const j=await r.json();
