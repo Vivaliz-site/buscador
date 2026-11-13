@@ -70,5 +70,16 @@ class MainMergeProvenanceTests(unittest.TestCase):
         self.assertTrue(ok, reasons)
 
 
+    def test_main_guard_injects_github_token_for_global_manifest(self):
+        """Read the canonical audit manifest with the existing authorized token."""
+        workflow = (ROOT / ".github/workflows/absolute-audit-main-guard.yml").read_text(
+            encoding="utf-8"
+        )
+        marker = "      - name: Validate Absolute Audit V5 on published main\n"
+        self.assertIn(marker, workflow)
+        validation_step = workflow.split(marker, 1)[1].split("\n      - name:", 1)[0]
+        self.assertIn("GITHUB_TOKEN: ${{ github.token }}", validation_step)
+
+
 if __name__ == "__main__":
     unittest.main()
