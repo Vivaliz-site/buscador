@@ -43,5 +43,18 @@ class RoutingPolicyTests(unittest.TestCase):
         self.assertTrue(self.scan(owners='# just a comment\n'))
 
 
+class MainGuardAuthenticatedManifestTests(unittest.TestCase):
+    def test_global_manifest_validation_uses_existing_actions_token(self):
+        """Avoid unauthenticated GitHub REST limits without relaxing manifest parity."""
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / '.github/workflows/absolute-audit-main-guard.yml'
+        ).read_text(encoding='utf-8')
+        marker = '      - name: Validate Absolute Audit V5 on published main\n'
+        self.assertIn(marker, workflow)
+        step = workflow.split(marker, 1)[1].split('\n      - name:', 1)[0]
+        self.assertIn('GITHUB_TOKEN: ${{ github.token }}', step)
+
+
 if __name__ == '__main__':
     unittest.main()
