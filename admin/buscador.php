@@ -152,6 +152,7 @@ const names={openai:'OpenAI',anthropic:'Claude',gemini:'Gemini'};
 const transportNames={codex_chatgpt:'via ChatGPT/Codex',openrouter:'via OpenRouter',manual_chatgpt:'ChatGPT manual'};
 let running=false;
 let count=0;
+let healthRequestId=0;
 
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function phaseName(p){return ({research:'Pesquisa independente',critique:'Contraditório',converge:'Convergência',consensus:'Síntese de consenso'}[p]||p);}
@@ -305,10 +306,13 @@ function handleEvent(e){
 }
 
 async function loadHealth(){
+  const requestId=++healthRequestId;
   const profile=document.getElementById('profile').value;
   try{
     const r=await fetch(API+'?health=1&profile='+encodeURIComponent(profile),{credentials:'same-origin'});
     const j=await r.json();
+    // A slower request for a previous profile must not overwrite this UI.
+    if(requestId!==healthRequestId)return;
     if(!r.ok||j.ok!==true||j.endpoint!=='buscador'||!j.providers||typeof j.providers!=='object'){
       throw new Error('invalid_health_response');
     }
@@ -329,6 +333,7 @@ async function loadHealth(){
     }
     document.getElementById('models').textContent=models.join('  |  ')+'  |  Fable: desabilitado';
   }catch(err){
+    if(requestId!==healthRequestId)return;
     document.getElementById('models').textContent='Não foi possível consultar o health do Buscador.';
   }
 }
