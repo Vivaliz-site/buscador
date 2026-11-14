@@ -187,12 +187,12 @@ export function normalizeRun(payload, mode = 'research') {
   const consensus = [...events].reverse().find((event) => event?.type === 'consensus' && event?.ok === true) ?? null;
   const finished = [...events].reverse().find((event) => event?.type === 'cycle_finished') ?? null;
   const started = events.find((event) => event?.type === 'cycle_started') ?? null;
-  const cycleId = started?.cycle_id || finished?.cycle_id || null;
-  // A resposta pode omitir IDs em eventos legados; IDs explicitos nunca
-  // podem pertencer a outra execucao e compor um falso consenso.
-  const cycleIdsConsistent = cycleId === null || events.every(
-    (event) => event?.cycle_id == null || event.cycle_id === cycleId,
-  );
+  // Confere tambem o identificador informado no envelope: um payload pode
+  // declarar ciclo B apesar de todos os eventos pertencerem ao ciclo A.
+  // Eventos legados sem identificador continuam compativeis.
+  const explicitCycleIds = [payload?.cycle_id, ...events.map((event) => event?.cycle_id)]
+    .filter((id) => id != null && id !== '');
+  const cycleIdsConsistent = explicitCycleIds.every((id) => id === explicitCycleIds[0]);
   const providerStatus = isObject(finished?.provider_status) ? finished.provider_status : {};
   const providerPhaseStatus = isObject(finished?.provider_phase_status) ? finished.provider_phase_status : {};
   const providerStatusOk = BUSCADOR_PROVIDERS.every((provider) => providerStatus[provider] === 'ok');
@@ -214,7 +214,7 @@ export function normalizeRun(payload, mode = 'research') {
   return {
     ok: completeConsensus,
     endpoint: payload?.endpoint ?? null,
-    cycle_id: payload?.cycle_id ?? null,
+    cycle_id: payload?.cycle_id ?? started?.cycle_id ?? finished?.cycle_id ?? null,
     providers_observed: providersObserved,
     provider_status: providerStatus,
     provider_phase_status: providerPhaseStatus,
