@@ -369,3 +369,29 @@ test('runBuscador reports an upstream timeout', async () => {
     await handler.close();
   }
 });
+
+test('erros HTTP grandes preservam a classe original sem ler payload inutil', async () => {
+  const hugeErrorBody = 'E'.repeat(2_000_001);
+  for (const { tool, status, expected } of [
+    { tool: 'getBuscadorHealth', status: 503, expected: 'upstream_error' },
+    { tool: 'runBuscador', status: 429, expected: 'upstream_rate_limited' },
+    { tool: 'runBuscador', status: 502, expected: 'upstream_error' },
+  ]) {
+    const handler = makeHandler(async () => new Response(hugeErrorBody, {
+      status, headers: { 'Content-Type': 'text/plain' },
+    }));
+    try {
+      const body = await rpc(handler, 500 + status, 'tools/call', {
+        name: tool,
+        arguments: tool === 'getBuscadorHealth'
+          ? { profile: 'fast' }
+          : { message: 'teste de erro', profile: 'fast', mode: 'parallel' },
+      });
+      assert.equal(body.result.isError, true);
+      assert.equal(body.result.structuredContent.error_class, expected);
+      assert.equal(body.result.structuredContent.error, `upstream_http_${status}`);
+    } finally {
+      await handler.close();
+    }
+  }
+});

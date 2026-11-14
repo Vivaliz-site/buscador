@@ -222,6 +222,17 @@ export function normalizeRun(payload, mode = 'research') {
   };
 }
 
+function discardErrorResponseBody(response) {
+  try {
+    const cancellation = response.body?.cancel();
+    if (cancellation && typeof cancellation.catch === 'function') {
+      void cancellation.catch(() => {});
+    }
+  } catch {
+    // An error-body cancellation failure must not mask the HTTP status.
+  }
+}
+
 async function readTextLimited(response, maxBytes = MAX_RESPONSE_BYTES) {
   if (!response.body) return '';
   const reader = response.body.getReader();
@@ -266,14 +277,15 @@ async function requestJson({
       throw new BuscadorMcpError('upstream_unreachable', redactSecrets(error?.message, secrets));
     }
 
-    const text = await readTextLimited(response);
     if (!response.ok) {
+      discardErrorResponseBody(response);
       throw new BuscadorMcpError(
         classifyHttpError(response.status),
         `upstream_http_${response.status}`,
         { http_status: response.status },
       );
     }
+    const text = await readTextLimited(response);
 
     try {
       return { payload: JSON.parse(text), httpStatus: response.status };
@@ -307,7 +319,7 @@ async function requestNdjson({
     }
 
     if (!response.ok) {
-      await readTextLimited(response);
+      discardErrorResponseBody(response);
       throw new BuscadorMcpError(
         classifyHttpError(response.status),
         `upstream_http_${response.status}`,
