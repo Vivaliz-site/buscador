@@ -34,3 +34,28 @@ test('mantem o consenso valido com identificadores coerentes', () => {
   const payload = { ok: true, endpoint: 'buscador', events: eventSet(false) };
   assert.equal(normalizeRun(payload, 'parallel').complete_consensus, true);
 });
+
+test('rejeita consenso cujo envelope declara outro ciclo', () => {
+  const payload = { ok: true, endpoint: 'buscador', cycle_id: 'cycle-B', events: eventSet(false) };
+  assert.equal(normalizeRun(payload, 'parallel').complete_consensus, false);
+});
+
+test('rejeita IDs mistos mesmo sem identificador nos marcadores de inicio e fim', () => {
+  const events = eventSet(true).map((event) =>
+    ['cycle_started', 'cycle_finished'].includes(event.type) ? { ...event, cycle_id: undefined } : event);
+  const payload = { ok: true, endpoint: 'buscador', events };
+  assert.equal(normalizeRun(payload, 'parallel').complete_consensus, false);
+});
+
+test('mantem compatibilidade quando todos os eventos sao legados sem cycle_id', () => {
+  const events = eventSet(false).map(({ cycle_id, ...event }) => event);
+  const payload = { ok: true, endpoint: 'buscador', events };
+  assert.equal(normalizeRun(payload, 'parallel').complete_consensus, true);
+});
+
+test('propaga o identificador do ciclo ao resultado mesmo sem envelope', () => {
+  const payload = { ok: true, endpoint: 'buscador', events: eventSet(false) };
+  const result = normalizeRun(payload, 'parallel');
+  assert.equal(result.cycle_id, 'cycle-A');
+  assert.equal(result.complete_consensus, true);
+});
